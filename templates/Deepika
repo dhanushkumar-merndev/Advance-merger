@@ -1,0 +1,24 @@
+[
+  ["Date", "a", "l"],
+  ["Hirise Mobility", "0", "l"],
+  ["Campaign", "[4,20,36,52]", "h"],
+  ["Name", "[14,30,46,62]", "h", "l"],
+  ["Contact No", "[15,31,47,63]", "d", "i", "r"],
+  ["Time of Assign Lead", "b", "r"],
+  [
+    "Assign",
+    "[13,29,45,61]",
+    "k",
+    {
+      "hoodi": "Sean Bezlel R N",
+      "whitefield": "Harish C",
+      "seegehalli": "Raghu Ranjith M",
+      "gunjur": "Narasimha N",
+      "marathahalli": "Ashwath Narayana Chari B N",
+      "panathur": "Vinod Kumar R"
+    }
+  ],
+  ["Remark", "0", "l"],
+  ["Location", "[13,29,45,61]", "h", "u", "x", "l"],
+  ["Lead Created Date FB/IG/Cam leads", "[2,18,34,50]", "l"]
+]
