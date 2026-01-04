@@ -1,0 +1,63 @@
+[
+  [
+    "Date",
+    "a"
+  ],
+  [
+    "Hirise Moblity",
+    "0"
+  ],
+  [
+    "Campaign",
+    "ad_name",
+    "l"
+  ],
+  [
+    "Name",
+    "full_name",
+    "l",
+    "h"
+  ],
+  [
+    "Contact No",
+    "phone_number",
+    "d",
+    "i",
+    "l"
+  ],
+  [
+    "Time of Assign Lead",
+    "b",
+    "l"
+  ],
+  [
+    "Assign",
+    "select_your_nearest_branch_*",
+    "k","l",
+    {
+      "hoodi": "Sean Bezlel R N",
+      "whitefield": "Harish C",
+      "seegehalli": "Raghu Ranjith M",
+      "gunjur": "Narasimha N",
+      "marathahalli": "Ashwath Narayana Chari B N",
+      "panathur": "Vinod Kumar R"
+    }
+  ],
+  [
+    "Remark",
+    "0"
+  ],
+  [
+    "Location",
+    "select_your_nearest_branch_*",
+    "l",
+    "h",
+    "j",
+    "u",
+    "x"
+  ],
+  [
+    "Lead Created Date FB/IG/Cam Leads",
+    "created_time"
+  ]
+]
