@@ -274,6 +274,8 @@ if choice == "2":
     print()
 
 # ---------------- TEMPLATE ----------------
+template_unique_cols = []  # Store unique column settings from template
+
 if choice == "1":
     templates = [f for f in os.listdir(TEMPLATE_DIR) if f.endswith('.json')]
     if not templates:
@@ -292,9 +294,31 @@ if choice == "1":
     template_path = os.path.join(TEMPLATE_DIR, templates[tsel - 1])
     
     with open(template_path) as f:
-        template = json.load(f)
+        template_data = json.load(f)
+    
+    # Check if template has unique settings
+    if isinstance(template_data, dict) and "columns" in template_data:
+        template = template_data["columns"]
+        template_unique_cols = template_data.get("unique_columns", [])
+    else:
+        template = template_data
+        template_unique_cols = []
     
     print(f"\n✓ Template loaded: {templates[tsel - 1]}")
+    
+    # Ask for Quick Complete or Advanced mode
+    print("\n" + "="*50)
+    print("PROCESSING MODE")
+    print("="*50)
+    print("1. Quick Complete - Use template defaults (auto-process)")
+    print("2. Advanced - Customize settings")
+    mode = input("\nSelect mode (1/2): ").strip()
+    quick_mode = (mode == "1")
+    
+    if quick_mode:
+        print("\n✓ Quick Complete mode activated")
+        print("  → Using template defaults")
+        print("  → Auto-removing duplicates and blanks")
     
     # Validate template columns
     missing_cols = []
@@ -339,6 +363,7 @@ if choice == "1":
     print("✓ All template columns found in data")
 
 else:  # Create new template
+    quick_mode = False  # Always False for template creation
     print("\n" + "="*50)
     print("FORMAT CODES")
     print("="*50)
@@ -418,17 +443,47 @@ else:  # Create new template
         print("\n✗ No columns added. Exiting.")
         exit()
 
+    # Ask for unique column settings
+    print("\n" + "="*50)
+    print("DEDUPLICATION SETTINGS (Optional)")
+    print("="*50)
+    print("Do you want to save unique column criteria in this template?")
+    save_unique = input("(y/n): ").lower().strip()
+    
+    if save_unique == "y":
+        print("\nSelect columns for unique check from OUTPUT columns:")
+        for i, rule in enumerate(template, 1):
+            print(f"{i}. {rule[0]}")
+        
+        unique_input = input("\nEnter column number(s) (comma-separated): ").strip()
+        if unique_input:
+            template_unique_cols = [template[int(i)-1][0] for i in unique_input.split(",")]
+            print(f"✓ Unique columns saved: {', '.join(template_unique_cols)}")
+
     tname = input("\nSave template as (name.json): ").strip()
     if not tname.endswith('.json'):
         tname += '.json'
     
     template_path = os.path.join(TEMPLATE_DIR, tname)
+    
+    # Save template with unique settings
+    template_to_save = {
+        "columns": template,
+        "unique_columns": template_unique_cols
+    }
+    
     with open(template_path, "w") as f:
-        json.dump(template, f, indent=2)
+        json.dump(template_to_save, f, indent=2)
     print(f"\n✓ Template saved: {tname}")
 
 # ---------------- OUTPUT FILE ----------------
-output_name = input("\nEnter output file name (without .xlsx): ").strip() or "ADVANCED_MERGED_OUTPUT"
+if choice == "1" and quick_mode:
+    # Quick mode: auto-generate filename
+    output_name = f"OUTPUT_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    print(f"\n✓ Output file: {output_name}.xlsx")
+else:
+    # Advanced mode: ask for filename
+    output_name = input("\nEnter output file name (without .xlsx): ").strip() or "ADVANCED_MERGED_OUTPUT"
 out_path = os.path.join(OUTPUT_DIR, f"{output_name}.xlsx")
 
 # ---------------- APPLY TEMPLATE ----------------
@@ -509,20 +564,86 @@ for rule in template:
 final_df = pd.DataFrame(output)
 print(f"✓ Processed {len(final_df)} rows")
 
-# ---------------- DEDUPLICATION ----------------
-uniq = input("\nDo you need unique records? (y/n): ").lower().strip()
+# ---------------- DEDUPLICATION (FIXED) ----------------
+if choice == "1" and quick_mode:
+    # Quick Complete mode: auto-process with defaults
+    uniq = "y"
+    print("\n⚙ Auto-processing duplicates and blanks...")
+else:
+    # Advanced mode: ask user
+    uniq = input("\nDo you need unique records? (y/n): ").lower().strip()
+
 total_before = len(final_df)
 duplicate_count = 0
+blank_rows_deleted = 0
+selected_unique_cols = []
 
 if uniq == "y":
-    print("\nSelect columns for duplicate check:")
-    for i, col in enumerate(final_df.columns, 1):
-        print(f"{i}. {col}")
+    # Check if template has saved unique columns
+    use_template_unique = False
+    if template_unique_cols:
+        if choice == "1" and quick_mode:
+            # Quick mode: auto-use template columns
+            selected_unique_cols = template_unique_cols
+            use_template_unique = True
+            print(f"✓ Using template columns: {', '.join(template_unique_cols)}")
+        else:
+            # Advanced mode: ask user
+            print(f"\n📋 Template has saved unique columns: {', '.join(template_unique_cols)}")
+            use_saved = input("Use these columns? (y/n): ").lower().strip()
+            if use_saved == "y":
+                selected_unique_cols = template_unique_cols
+                use_template_unique = True
+    
+    if not use_template_unique:
+        print("\nSelect columns for duplicate check:")
+        for i, col in enumerate(final_df.columns, 1):
+            print(f"{i}. {col}")
 
-    idxs = input("\nEnter column numbers (comma-separated): ").strip()
-    cols = [final_df.columns[int(i)-1] for i in idxs.split(",")]
+        idxs = input("\nEnter column number(s) (comma-separated for multiple, single for one): ").strip()
+        selected_unique_cols = [final_df.columns[int(i)-1] for i in idxs.split(",")]
 
-    dup_mask = final_df.duplicated(subset=cols, keep="first")
+    print(f"\n✓ Using columns for uniqueness: {', '.join(selected_unique_cols)}")
+
+    # Check for blank cells in selected columns (FIXED VERSION)
+    blank_mask = pd.DataFrame(False, index=final_df.index, columns=final_df.columns)
+    
+    for col in selected_unique_cols:
+        blank_mask[col] = (
+            final_df[col].isna() | 
+            (final_df[col] == "") | 
+            (final_df[col].astype(str).str.strip() == "")
+        )
+    
+    has_blanks = blank_mask[selected_unique_cols].any(axis=1).sum() > 0
+
+    if has_blanks:
+        blank_count = blank_mask[selected_unique_cols].any(axis=1).sum()
+        
+        if choice == "1" and quick_mode:
+            # Quick mode: auto-delete blanks
+            delete_blanks = "y"
+            print(f"\n✓ Auto-removing {blank_count} rows with blank cells")
+        else:
+            # Advanced mode: ask user
+            print(f"\n⚠ Found {blank_count} row(s) with blank cells in selected column(s)")
+            delete_blanks = input("Delete rows with blank cells in these columns? (y/n): ").lower().strip()
+        
+        if delete_blanks == "y":
+            # Save blank rows to separate file
+            rows_with_blanks = blank_mask[selected_unique_cols].any(axis=1)
+            blank_df = final_df[rows_with_blanks]
+            final_df = final_df[~rows_with_blanks]
+            blank_rows_deleted = blank_count
+            
+            if not blank_df.empty:
+                blank_path = os.path.join(DUPLICATE_DIR, f"{output_name}_BLANK_ROWS.xlsx")
+                blank_df.to_excel(blank_path, index=False)
+                print(f"✓ Blank rows saved: {blank_path}")
+            print(f"✓ Deleted {blank_rows_deleted} rows with blank cells")
+
+    # Perform deduplication
+    dup_mask = final_df.duplicated(subset=selected_unique_cols, keep="first")
     dup_df = final_df[dup_mask]
     duplicate_count = len(dup_df)
     final_df = final_df[~dup_mask]
@@ -555,7 +676,13 @@ print("\n" + "="*50)
 print("📊 MERGE SUMMARY")
 print("="*50)
 print(f"Total rows before dedupe : {total_before}")
-print(f"Unique rows kept         : {len(final_df)}")
+if blank_rows_deleted > 0:
+    print(f"Blank rows deleted       : {blank_rows_deleted}")
 print(f"Duplicates removed       : {duplicate_count}")
+print(f"Unique rows kept         : {len(final_df)}")
 print(f"\n✅ Final output created: {out_path}")
+if blank_rows_deleted > 0:
+    print(f"📄 Blank rows file: {os.path.join(DUPLICATE_DIR, f'{output_name}_BLANK_ROWS.xlsx')}")
+if duplicate_count > 0:
+    print(f"📄 Duplicates file: {os.path.join(DUPLICATE_DIR, f'{output_name}_DUPLICATES.xlsx')}")
 print("="*50)
