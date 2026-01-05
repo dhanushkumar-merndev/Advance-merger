@@ -31,7 +31,8 @@ FORMAT_CODES = {
     "j": "TRIM_DASH",
     "u": "TRIM_UNDERSCORE",
     "x": "TRIM_DOT",
-    "k": "DICT_LOOKUP"
+    "k": "DICT_LOOKUP",
+    "q": "DICT_LOOKUP_WITH_DEFAULT"
 }
 
 ALIGN_CODES = {"l": "left", "r": "right"}
@@ -112,6 +113,18 @@ def apply_format(val, code):
 def read_dictionary_inline():
     print("\nEnter dictionary mapping (ENTER key to stop)")
     dk = {}
+    while True:
+        key = input("Key: ").strip().lower()
+        if not key:
+            break
+        value = input(f"Value for '{key}': ").strip()
+        dk[key] = value
+    return dk
+
+def read_dictionary_with_default():
+    default_val = input("\nEnter default value (if no key matches): ").strip()
+    print("\nEnter dictionary mapping (ENTER key to stop)")
+    dk = {"__default__": default_val}
     while True:
         key = input("Key: ").strip().lower()
         if not key:
@@ -346,11 +359,12 @@ else:  # Create new template
         print("  - Use 0 for blank/empty column")
         print("  - Enter column number(s) from the list above")
         print("  - Or use [col1,col2,col3] for multiple columns")
-        print("  - Add format codes (a,b,c,d,e,f,g,h,i,j,u,x,k)")
+        print("  - Add format codes (a,b,c,d,e,f,g,h,i,j,u,x,k,q)")
         print("  - Add alignment (l or r)")
         print("Example 1: 0  (blank column)")
         print("Example 2: 5 d e  (column 5, last 10 digits, add +91)")
         print("Example 3: 0 a  (blank column with today's date)")
+        print("Example 4: 7 q  (column 7 with dict lookup + default value)")
         
         mapping_input = input("\nMapping: ").split()
         
@@ -394,6 +408,8 @@ else:  # Create new template
 
         if "k" in converted_mapping:
             rule.append(read_dictionary_inline())
+        elif "q" in converted_mapping:
+            rule.append(read_dictionary_with_default())
 
         template.append(rule)
         print(f"✓ Added column: {name}")
@@ -470,13 +486,20 @@ for rule in template:
 
         # Apply format codes
         for t in tokens[ptr:]:
-            if t != "k":
+            if t not in ["k", "q"]:
                 val = apply_format(val, t)
 
-        # Apply dictionary lookup
-        if "k" in tokens and col_dict:
-            matches = [v for k, v in col_dict.items() if k in str(val).lower()]
-            val = ", ".join(dict.fromkeys(matches))
+        # Apply dictionary lookup (k or q)
+        if ("k" in tokens or "q" in tokens) and col_dict:
+            matches = [v for k, v in col_dict.items() if k != "__default__" and k in str(val).lower()]
+            if matches:
+                val = ", ".join(dict.fromkeys(matches))
+            elif "q" in tokens and "__default__" in col_dict:
+                # Use default value if no match found
+                val = col_dict["__default__"]
+            elif "k" in tokens:
+                # For regular k, leave empty if no match
+                val = ""
 
         values.append(val)
 
