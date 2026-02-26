@@ -502,6 +502,48 @@ select.input { cursor: pointer; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
 .hidden { display: none !important; }
 
+/* ═══ INPUT FILE CARDS ═══ */
+.input-files-grid { display: flex; flex-direction: column; gap: 6px; }
+.input-folder-section { margin-bottom: 16px; }
+.input-folder-header { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--text2); margin-bottom: 8px; padding: 8px 12px; background: var(--surface2); border-radius: 8px; border: 1px solid var(--border); }
+.input-folder-header .folder-file-count { margin-left: auto; font-size: 10px; color: var(--text3); font-weight: 500; }
+.input-file-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: white; border: 1.5px solid var(--border);
+  border-radius: 8px; cursor: pointer; transition: all .15s;
+  font-size: 12px; user-select: none;
+}
+.input-file-card:hover { border-color: var(--blue-border); background: var(--blue-soft); }
+.input-file-card .ifc-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--blue-soft); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--blue); }
+.input-file-card .ifc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); font-size: 12px; }
+.input-file-card .ifc-full { display: none; font-size: 11px; color: var(--text2); word-break: break-all; white-space: normal; }
+.input-file-card.expanded .ifc-name { white-space: normal; overflow: visible; }
+.input-file-card.expanded .ifc-full { display: block; margin-top: 2px; }
+.input-file-card .ifc-actions { display: flex; gap: 4px; flex-shrink: 0; opacity: 0; transition: opacity .15s; }
+.input-file-card:hover .ifc-actions { opacity: 1; }
+.input-file-card .ifc-size { font-size: 10px; color: var(--text3); flex-shrink: 0; }
+.input-search-bar { margin-bottom: 12px; }
+
+/* ═══ COMPACT SOURCE CARDS ═══ */
+.compact-src-card {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; margin-bottom: 4px; cursor: pointer; transition: all .12s;
+  font-size: 11px;
+}
+.compact-src-card:hover { border-color: var(--blue-border); background: var(--blue-soft); }
+.compact-src-card .csc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text2); }
+.compact-src-card.expanded .csc-name { white-space: normal; overflow: visible; }
+.compact-src-card .csc-full { display: none; font-size: 10px; color: var(--text3); word-break: break-all; }
+.compact-src-card.expanded .csc-full { display: block; }
+
+/* ═══ DRAG-DROP ZONES ═══ */
+.tree-node.drag-over > .tree-node-hdr { border: 2px dashed var(--blue); background: var(--blue-soft); border-radius: 8px; }
+.input-drop-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; color: var(--text3); font-size: 12px; margin-top: 12px; transition: all .15s; cursor: pointer; }
+.input-drop-zone:hover, .input-drop-zone.drag-over { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); }
+.input-drop-zone .drop-icon { font-size: 24px; margin-bottom: 6px; }
+.folder-actions-bar { display: flex; align-items: center; gap: 4px; }
+
 /* Info box colors */
 .info-box { padding: 10px 14px; border-radius: 8px; font-size: 12px; margin-bottom: 14px; }
 .info-box.purple { background: var(--purple-soft); border: 1px solid #ddd6fe; color: var(--purple); }
@@ -671,6 +713,7 @@ select.input { cursor: pointer; }
     <div class="page-header"><h1>Configuration Preview</h1><p>Visualize how your data will be processed before running</p></div>
     <div class="preview-tabs" style="display:flex;align-items:center;justify-content:space-between">
       <div style="display:flex;gap:4px">
+        <button class="preview-tab" data-pm="input" onclick="setPreviewMode('input', this)">Input</button>
         <button class="preview-tab active" data-pm="template" onclick="setPreviewMode('template', this)">Template Preview</button>
         <button class="preview-tab" data-pm="group" onclick="setPreviewMode('group', this)">Source Groups</button>
         <button class="preview-tab" data-pm="campaign" onclick="setPreviewMode('campaign', this)">Campaigns</button>
@@ -1049,7 +1092,7 @@ async function navigate(page) {
   if (page === 'sources')   renderGroupList();
   if (page === 'campaigns') renderCampaignList();
   if (page === 'run')       await refreshRunPage();
-  if (page === 'preview')   { PREVIEW_MODE='template'; document.querySelectorAll('.preview-tab').forEach((t,i)=>t.classList.toggle('active',i===0)); renderPreview(); }
+  if (page === 'preview')   { PREVIEW_MODE='template'; document.querySelectorAll('.preview-tab').forEach(t=>t.classList.toggle('active',t.dataset.pm==='template')); renderPreview(); }
   if (page === 'viewer')    refreshViewerPage();
   refreshIcons();
 }
@@ -1372,6 +1415,7 @@ function openCreateTemplate() {
   document.getElementById('scanStatus').textContent='Choose a method above to detect columns from your data';
   document.getElementById('colCount').textContent='0';
   STATE.currentTemplateLinks = [];
+  STATE._scannedInputFileNames = [];
   renderTemplateLinkList();
   addTplColumn(); navigate('template'); openPanel('templatePanel');
 
@@ -1507,7 +1551,13 @@ function saveTemplate(){
   save();closePanel('templatePanel');renderTemplateList();
 
   const jsonObj=templateToJsonFile(tpl);const filename=name.replace(/[^\w\-]/g,'_')+'.json';
-  if(STATE.folderHandle){writeToLinkedFolder('templates',filename,jsonObj).then(ok=>{if(ok)toast(`Saved to templates/${filename}`,'success');else{if(window.confirm(`Download "${filename}" to place in templates/?`))downloadTemplateJson(tpl);}});}
+  if(STATE.folderHandle){
+    writeToLinkedFolder('templates',filename,jsonObj).then(ok=>{if(ok)toast(`Saved to templates/${filename}`,'success');else{if(window.confirm(`Download "${filename}" to place in templates/?`))downloadTemplateJson(tpl);}});
+    // Move scanned input files into template-named subfolder
+    if(STATE._scannedInputFileNames && STATE._scannedInputFileNames.length > 0){
+      moveInputFilesToTemplateFolder(name);
+    }
+  }
   else{setTimeout(()=>{if(window.confirm(`Download "${filename}" for templates/ folder?`))downloadTemplateJson(tpl);},400);}
 }
 
@@ -1849,9 +1899,181 @@ async function autoDetectInputFiles(){
     const inputDir=await STATE.folderHandle.getDirectoryHandle('input').catch(()=>null);
     if(!inputDir)return[];
     const files=[];
-    for await(const[name,handle]of inputDir.entries()){if(handle.kind==='file'&&/\.(csv|xlsx|xls|tsv|txt)$/i.test(name))files.push(name);}
+    // Scan root files
+    for await(const[name,handle]of inputDir.entries()){
+      if(handle.kind==='file'&&/\.(csv|xlsx|xls|tsv|txt)$/i.test(name))files.push(name);
+      // Also scan subfolders
+      if(handle.kind==='directory'){
+        try{
+          for await(const[fname,fh]of handle.entries()){
+            if(fh.kind==='file'&&/\.(csv|xlsx|xls|tsv|txt)$/i.test(fname))files.push(name+'/'+fname);
+          }
+        }catch(e){}
+      }
+    }
     STATE._inputFiles=files;return files;
   }catch(e){console.warn(e);return[];}
+}
+
+async function scanInputFiles(){
+  if(!STATE.folderHandle){toast('Link a project folder first','error');return;}
+  try{
+    const inputDir=await STATE.folderHandle.getDirectoryHandle('input',{create:true});
+    const result={_root:[]};
+    for await(const[name,handle]of inputDir.entries()){
+      if(handle.kind==='file'&&/\.(csv|xlsx|xls|tsv|txt|ods)$/i.test(name)){
+        const file=await handle.getFile();
+        result._root.push({name,size:file.size,lastModified:file.lastModified,folder:'_root'});
+      }
+      if(handle.kind==='directory'){
+        result[name]=[];
+        try{
+          for await(const[fname,fh]of handle.entries()){
+            if(fh.kind==='file'&&/\.(csv|xlsx|xls|tsv|txt|ods)$/i.test(fname)){
+              const file=await fh.getFile();
+              result[name].push({name:fname,size:file.size,lastModified:file.lastModified,folder:name});
+            }
+          }
+        }catch(e){}
+      }
+    }
+    STATE._allInputFiles=result;
+    return result;
+  }catch(e){console.warn(e);return{_root:[]};}
+}
+
+async function deleteInputFile(folder,fname){
+  if(!STATE.folderHandle)return;
+  confirmDialog('Delete File', `Delete "${fname}"?`, async () => {
+    try{
+      const inputDir=await STATE.folderHandle.getDirectoryHandle('input');
+      if(folder==='_root'){
+        await inputDir.removeEntry(fname);
+      }else{
+        const subDir=await inputDir.getDirectoryHandle(folder);
+        await subDir.removeEntry(fname);
+      }
+      toast('File deleted','success');
+      refreshPreview();
+    }catch(e){toast('Delete failed: '+e.message,'error');}
+  });
+}
+
+async function deleteAllInFolder(folder) {
+  const folderName = folder === '_root' ? 'input/' : folder;
+  confirmDialog('Delete All', `Permanently delete all files in "${folderName}"?`, async () => {
+    try {
+      const inputDir = await STATE.folderHandle.getDirectoryHandle('input');
+      const targetDir = folder === '_root' ? inputDir : await inputDir.getDirectoryHandle(folder);
+      
+      const entries = [];
+      for await (const entry of targetDir.values()) {
+        if (entry.kind === 'file') entries.push(entry.name);
+      }
+      
+      if (!entries.length) {
+        toast('Folder is already empty');
+        return;
+      }
+
+      for (const name of entries) {
+        await targetDir.removeEntry(name);
+      }
+      
+      toast(`Deleted ${entries.length} file(s) from ${folderName}`, 'success');
+      refreshPreview();
+    } catch (e) {
+      toast('Delete all failed: ' + e.message, 'error');
+    }
+  });
+}
+
+async function handleInputFolderDrop(event, folder) {
+  const SUPPORTED = ['.csv', '.xlsx', '.xls', '.tsv', '.txt', '.ods'];
+
+  function getExt(filename) {
+    const dotIdx = filename.lastIndexOf('.');
+    if (dotIdx <= 0) return '';
+    return filename.slice(dotIdx).toLowerCase();
+  }
+
+  // ✅ Use .files (reliable for OS drags) with .items as fallback
+  let files = [];
+  if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+    files = [...event.dataTransfer.files];
+  } else if (event.dataTransfer.items) {
+    for (const item of event.dataTransfer.items) {
+      if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+  }
+
+  if (!files.length) {
+    toast('No files detected — try dragging directly from your file explorer', 'error');
+    return;
+  }
+
+  if (!STATE.folderHandle) {
+    toast('Link a project folder first', 'error');
+    return;
+  }
+
+  try {
+    const inputDir = await STATE.folderHandle.getDirectoryHandle('input');
+    const targetDir = folder === '_root'
+      ? inputDir
+      : await inputDir.getDirectoryHandle(folder, { create: true });
+
+    let uploaded = 0;
+    const skipped = [];
+
+    for (const file of files) {
+      const ext = getExt(file.name);
+      if (!ext) {
+        skipped.push(`${file.name} (no extension)`);
+        continue;
+      }
+      if (!SUPPORTED.includes(ext)) {
+        skipped.push(`${file.name} (${ext} not supported)`);
+        continue;
+      }
+
+      const fileHandle = await targetDir.getFileHandle(file.name, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(file);
+      await writable.close();
+      uploaded++;
+    }
+
+    if (uploaded > 0) {
+      toast(`Uploaded ${uploaded} file(s) to ${folder === '_root' ? 'input/' : folder}`, 'success');
+      refreshPreview();
+    }
+    if (skipped.length > 0) {
+      const names = skipped.slice(0, 2).join(', ');
+      const extra = skipped.length > 2 ? ` +${skipped.length - 2} more` : '';
+      toast(`Skipped: ${names}${extra} — use CSV, XLSX, XLS, TSV, TXT, ODS`, 'error');
+    }
+    if (uploaded === 0 && skipped.length === 0) {
+      toast('No valid files found — drag files directly from File Explorer', 'error');
+    }
+
+  } catch (e) {
+    toast('Upload failed: ' + e.message, 'error');
+  }
+}
+
+
+function formatFileSize(bytes){
+  if(bytes<1024)return bytes+' B';
+  if(bytes<1048576)return(bytes/1024).toFixed(1)+' KB';
+  return(bytes/1048576).toFixed(1)+' MB';
+}
+
+function getBaseName(path){
+  return path.split(/[\/\\]/).pop();
 }
 
 function buildSrcRow(existing,labelClass,pathClass){
@@ -1883,6 +2105,7 @@ function syncPathDropdown(sel){
   const wrap=sel.closest('.src-path-wrap');const input=wrap.querySelector('.src-path-input');const row=sel.closest('.smart-src-row');
   const ls=row.querySelector('.grp-src-label')?'.grp-src-label':'.ext-file-label';
   if(sel.value){input.value=sel.value;updateSrcRowUI(row,input,ls);}
+  // Keep dropdown open - don't reset selection, user closes manually
 }
 function initSrcRow(rowEl,pathSel,labelSel){
   const pathInput=rowEl.querySelector(pathSel);if(!pathInput)return;
@@ -1905,25 +2128,125 @@ async function pasteFromClipboard(btn){
 function clearSrcRow(btn){const wrap=btn.closest('.src-path-wrap');wrap.querySelector('.src-path-input').value='';const row=btn.closest('.smart-src-row');const b=row.querySelector('[id^="srcBadge_"]');if(b)b.innerHTML='';}
 
 // ─── FOLDER SCAN ───────────────────────────────────────────────────────────
-async function scanFolder(){
-  if(!STATE.folderHandle){toast('Link a project folder first','error');return;}
-  const scanBtn=document.getElementById('scanBtn');const statusEl=document.getElementById('scanStatus');
-  if(!scanBtn)return;scanBtn.innerHTML = '<i data-lucide="loader-2" class="icon spin"></i> Scanning...';
-refreshIcons();
-  try{
-    await loadSheetJS();const allCols=new Set();const filesSeen=[];const SUPPORTED=['.csv','.xlsx','.xls','.tsv','.txt'];
-    const dirsToSearch=[STATE.folderHandle];
-    for await(const[name,handle]of STATE.folderHandle.entries()){if(handle.kind==='directory'&&name==='input')dirsToSearch.push(handle);}
-    for(const dir of dirsToSearch){
-      for await(const[fname,fh]of dir.entries()){
-        if(fh.kind!=='file')continue;const ext=fname.toLowerCase().slice(fname.lastIndexOf('.'));if(!SUPPORTED.includes(ext))continue;
-        try{statusEl.textContent=`Reading ${fname}...`;const file=await fh.getFile();const{headers}=await parseFileHeaders(file);headers.forEach(h=>allCols.add(h));filesSeen.push({name:fname,count:headers.length});}catch(e){console.warn(e);}
+async function scanFolder() {
+  if (!STATE.folderHandle) {
+    toast('Link a project folder first', 'error');
+    return;
+  }
+
+  const scanBtn = document.getElementById('scanBtn');
+  const statusEl = document.getElementById('scanStatus');
+  if (!scanBtn) return;
+
+  // Show loader
+  scanBtn.innerHTML = '<i data-lucide="loader-2" class="icon spin"></i> Scanning...';
+  scanBtn.disabled = true;
+  refreshIcons();
+
+  STATE._scannedInputFileNames = [];
+
+  try {
+    await loadSheetJS();
+
+    const allCols = new Set();
+    const filesSeen = [];
+    const SUPPORTED = ['.csv', '.xlsx', '.xls', '.tsv', '.txt'];
+    const dirsToSearch = [STATE.folderHandle];
+    let inputDirHandle = null;
+
+    // Detect input folder
+    for await (const [name, handle] of STATE.folderHandle.entries()) {
+      if (handle.kind === 'directory' && name === 'input') {
+        dirsToSearch.push(handle);
+        inputDirHandle = handle;
       }
     }
-    scanBtn.textContent='🔍 Scan Input Folder';scanBtn.disabled=false;
-    if(allCols.size===0){statusEl.textContent='No headers detected';toast('No columns found','error');}
-    else{showDiscoveredCols([...allCols],filesSeen);statusEl.textContent=`✅ ${allCols.size} column(s) from ${filesSeen.length} file(s)`;}
-  }catch(e){document.getElementById('scanBtn').textContent='🔍 Scan Input Folder';document.getElementById('scanBtn').disabled=false;console.error(e);}
+
+    // Scan files
+    for (const dir of dirsToSearch) {
+      for await (const [fname, fh] of dir.entries()) {
+        if (fh.kind !== 'file') continue;
+
+        const ext = fname.toLowerCase().slice(fname.lastIndexOf('.'));
+        if (!SUPPORTED.includes(ext)) continue;
+
+        try {
+          statusEl.textContent = `Reading ${fname}...`;
+
+          const file = await fh.getFile();
+          const { headers } = await parseFileHeaders(file);
+
+          headers.forEach(h => allCols.add(h));
+          filesSeen.push({ name: fname, count: headers.length });
+
+          if (dir === inputDirHandle) {
+            STATE._scannedInputFileNames.push(fname);
+          }
+
+        } catch (e) {
+          console.warn(`Error reading ${fname}`, e);
+        }
+      }
+    }
+
+    // Restore button properly (IMPORTANT FIX)
+    scanBtn.innerHTML = '<i data-lucide="search" class="icon"></i> Scan Input Folder';
+    scanBtn.disabled = false;
+    refreshIcons();
+
+    if (allCols.size === 0) {
+      statusEl.textContent = 'No headers detected';
+      toast('No columns found', 'error');
+    } else {
+      showDiscoveredCols([...allCols], filesSeen);
+
+      statusEl.innerHTML =
+        `<i data-lucide="check" class="icon"></i> ${allCols.size} column(s) from ${filesSeen.length} file(s)`;
+
+      refreshIcons();
+    }
+
+  } catch (e) {
+    console.error(e);
+
+    scanBtn.innerHTML = '<i data-lucide="search" class="icon"></i> Scan Input Folder';
+    scanBtn.disabled = false;
+    refreshIcons();
+
+    statusEl.textContent = 'Scan failed';
+  }
+}
+
+async function moveInputFilesToTemplateFolder(templateName){
+  if(!STATE.folderHandle) return;
+  const filesToMove = STATE._scannedInputFileNames || [];
+  if(!filesToMove.length) return;
+  try{
+    const inputDir = await STATE.folderHandle.getDirectoryHandle('input', {create:true});
+    const safeName = templateName.replace(/[^\w\-]/g, '_');
+    const subDir = await inputDir.getDirectoryHandle(safeName, {create:true});
+    let moved = 0;
+    for(const fname of filesToMove){
+      try{
+        // Read the original file
+        const srcHandle = await inputDir.getFileHandle(fname);
+        const file = await srcHandle.getFile();
+        const content = await file.arrayBuffer();
+        // Write to subfolder
+        const destHandle = await subDir.getFileHandle(fname, {create:true});
+        const writable = await destHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        // Delete original
+        await inputDir.removeEntry(fname);
+        moved++;
+      }catch(e){console.warn('Could not move file:',fname,e);}
+    }
+    if(moved > 0){
+      toast(`Moved ${moved} file(s) to input/${safeName}/`, 'success');
+    }
+    STATE._scannedInputFileNames = [];
+  }catch(e){console.warn('moveInputFiles error:',e);}
 }
 
 async function readSampleFile(input){
@@ -1931,12 +2254,33 @@ async function readSampleFile(input){
   const statusEl=document.getElementById('scanStatus');statusEl.textContent=`Reading ${files.length} file(s)...`;
   try{
     await loadSheetJS();const allCols=new Set();const filesSeen=[];
-    for(const file of files){try{const{headers,fileName}=await parseFileHeaders(file);headers.forEach(h=>allCols.add(h));filesSeen.push({name:fileName,count:headers.length});}catch(e){toast(`Could not read ${file.name}`,'error');}}
+    for(const file of files){
+      try{
+        const{headers,fileName}=await parseFileHeaders(file);
+        headers.forEach(h=>allCols.add(h));
+        filesSeen.push({name:fileName,count:headers.length});
+        
+        // Auto-upload to input/ if project linked
+        if(STATE.folderHandle){
+          try {
+            const inputDir = await STATE.folderHandle.getDirectoryHandle('input', {create:true});
+            const fileHandle = await inputDir.getFileHandle(fileName, {create:true});
+            const writable = await fileHandle.createWritable();
+            await writable.write(file);
+            await writable.close();
+            if(!STATE._scannedInputFileNames.includes(fileName)){
+              STATE._scannedInputFileNames.push(fileName);
+            }
+          } catch(err) { console.warn('Auto-upload failed:', err); }
+        }
+      }catch(e){toast(`Could not read ${file.name}`,'error');}
+    }
     if(allCols.size>0){showDiscoveredCols([...allCols],filesSeen);statusEl.textContent=`✅ ${allCols.size} column(s) from ${filesSeen.length} file(s)`;}
     else statusEl.textContent='No headers found';
   }catch(e){statusEl.textContent='Read failed';}
   input.value='';
 }
+
 
 async function fetchGoogleSheetCols(){
   const urlInput=document.getElementById('gsheetUrlInput');const url=urlInput?urlInput.value.trim():'';
@@ -1997,7 +2341,7 @@ function showDiscoveredCols(cols,filesSeen=[]){
   document.querySelectorAll('.col-card').forEach(card=>{const src=card.querySelector('.tpl-col-src');refreshFmsDropdown(card,src?src.value:'');});
   const area=document.getElementById('discoveredColsArea');
   const filesHtml=filesSeen.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">${filesSeen.map(f=>`<span style="font-size:11px;background:white;border:1px solid #a7f3d0;border-radius:10px;padding:2px 8px;color:var(--green)">📄 ${esc(f.name)} (${f.count} cols)</span>`).join('')}</div>`:'';
-  area.innerHTML=`<div class="discovered-cols-wrap"><div class="discovered-header"><div class="discovered-title">✅ ${cols.length} Column(s) Found</div><button class="btn btn-ghost btn-sm" onclick="autoPopulateFromCols()">Auto-add all →</button></div>${filesHtml}<div class="discovered-hint">Click a column chip to add it as an output column</div><div class="folder-col-chips">${cols.map(c=>`<div class="col-chip" onclick="addTplColumnFromName('${escAttr(c)}')" title="Add as output column">+ ${esc(c)}</div>`).join('')}</div></div>`;
+  area.innerHTML=`<div class="discovered-cols-wrap"><div class="discovered-header"><div class="discovered-title"><i data-lucide="check" class="icon"></i> ${cols.length} Column(s) Found</div><button class="btn btn-ghost btn-sm" onclick="autoPopulateFromCols()">Auto-add all →</button></div>${filesHtml}<div class="discovered-hint">Click a column chip to add it as an output column</div><div class="folder-col-chips">${cols.map(c=>`<div class="col-chip" onclick="addTplColumnFromName('${escAttr(c)}')" title="Add as output column">+ ${esc(c)}</div>`).join('')}</div></div>`;
 }
 
 function autoPopulateFromCols(){STATE.discoveredCols.forEach(c=>addTplColumnFromName(c));toast(`Added ${STATE.discoveredCols.length} columns`,'success');}
@@ -2384,6 +2728,9 @@ async function refreshRunPage(){
   const campOpts='<option value="">-- Select Config --</option>'+sortedCamps.map(c=>`<option value="${esc(c.name)}" ${c.name===currentCamp?'selected':''}>${esc(c.name)}</option>`).join('');
   if(document.getElementById('runCampaignConfig'))document.getElementById('runCampaignConfig').innerHTML=campOpts;
   
+  // Scan input subfolders for auto-select
+  if(STATE.folderHandle) await scanInputSubfolders();
+  
   // Clean up listeners
   document.querySelectorAll('[name="runProcMode"]').forEach(r=>{
     r.onchange = () => {
@@ -2435,6 +2782,18 @@ function renderCustomDedupList() {
   `).join('');
 }
 
+async function scanInputSubfolders(){
+  if(!STATE.folderHandle)return;
+  try{
+    const inputDir=await STATE.folderHandle.getDirectoryHandle('input',{create:true});
+    const subfolders=[];
+    for await(const[name,handle]of inputDir.entries()){
+      if(handle.kind==='directory')subfolders.push(name);
+    }
+    STATE._inputSubfolders=subfolders;
+  }catch(e){STATE._inputSubfolders=[];}
+}
+
 function showTemplateInfo(name){
   const tpl=STATE.templates.find(t=>t.name===name);const el=document.getElementById('runTemplate1Info');if(!el)return;
   el.innerHTML=tpl?`${tpl.columns.length} columns · Dedup: ${tpl.dedupCols.length?tpl.dedupCols.join(', '):'none'}`:'';
@@ -2469,6 +2828,24 @@ function showTemplateInfo(name){
       }
     } else {
       checklistEl.innerHTML = '';
+    }
+  }
+  
+  // Auto-select matching input subfolder
+  if(name && STATE._inputSubfolders && STATE._inputSubfolders.length > 0) {
+    const tplSafeName = name.replace(/[^\w\-]/g, '_');
+    const match = STATE._inputSubfolders.find(f => 
+      f === name || f === tplSafeName || 
+      f.toLowerCase() === name.toLowerCase() || 
+      f.toLowerCase() === tplSafeName.toLowerCase()
+    );
+    if(match) {
+      const srcRadio = document.querySelector('input[name="runSrc1"][value="folder"]');
+      if(srcRadio) {
+        srcRadio.checked = true;
+        toggleExtFiles1();
+      }
+      toast(`Auto-selected input folder: ${match}`, 'info');
     }
   }
   
@@ -2637,14 +3014,80 @@ function setPreviewMode(mode, btn) {
   refreshPreview();
 }
 
-function refreshPreview() {
+async function refreshPreview() {
   const mode = STATE.previewMode || 'template';
   const query = document.getElementById('previewSearch')?.value?.toLowerCase() || '';
   const area = document.getElementById('previewArea');
   if(!area) return;
 
   let html = '';
-  if(mode === 'template') {
+  if(mode === 'input') {
+    // Input tab — show all files in input/ folder as tree
+    if(!STATE.folderHandle) {
+      html = '<div class="empty-state"><div class="es-icon"><i data-lucide="folder"></i></div><strong>No folder linked</strong>Link a project folder to view input files.</div>';
+    } else {
+      area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)"><i data-lucide="loader-2" class="icon spin"></i> Scanning input folder...</div>';
+      refreshIcons();
+      const inputData = await scanInputFiles();
+      const folders = Object.keys(inputData).sort((a,b) => a==='_root'?-1:b==='_root'?1:a.localeCompare(b));
+      let totalFiles = 0;
+      folders.forEach(f => totalFiles += inputData[f].length);
+      if(totalFiles === 0) {
+        html = '<div class="empty-state"><div class="es-icon"><i data-lucide="folder-open"></i></div><strong>No input files</strong>Place CSV, XLSX, or other data files in your input/ folder.</div>';
+      } else {
+        html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><span class="preview-label-badge" style="background:var(--green-soft);color:var(--green)">Input Files</span>
+          <span style="font-size:12px;color:var(--text3);margin-left:8px">${totalFiles} file(s)</span></div>
+          <button class="btn btn-ghost btn-sm" onclick="refreshPreview()"><i data-lucide="refresh-cw" class="icon"></i> Refresh</button>
+        </div>`;
+        html += '<div class="output-tree">';
+        folders.forEach(folder => {
+          let files = inputData[folder];
+          if(!files.length) return;
+          if(query) files = files.filter(f => f.name.toLowerCase().includes(query));
+          if(!files.length) return;
+          const folderLabel = folder === '_root' ? 'input/' : folder;
+          const folderIcon = folder === '_root' ? 'folder' : 'folder-open';
+          html += `<div class="tree-node open" data-drop-folder="${escAttr(folder)}" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleInputFolderDrop(event,'${escAttr(folder)}')">
+            <div class="tree-node-hdr" onclick="this.parentElement.classList.toggle('open');refreshIcons();">
+              <span class="tree-node-icon"><i data-lucide="chevron-right" class="icon"></i></span>
+              <i data-lucide="${folderIcon}" class="icon" style="width:14px;height:14px;color:var(--blue)"></i>
+              <span style="flex:1;font-size:13px;font-weight:600">${esc(folderLabel)}</span>
+              <div class="folder-actions-bar" onclick="event.stopPropagation()">
+                <span class="tree-file-meta">${files.length}</span>
+                <button class="btn-icon danger" onclick="deleteAllInFolder('${escAttr(folder)}')" title="Delete all files in ${esc(folderLabel)}"><i data-lucide="trash" class="icon"></i></button>
+              </div>
+            </div>
+            <div class="tree-children">`;
+          files.forEach(f => {
+            const basename = getBaseName(f.name);
+            const truncName = basename.length > 45 ? basename.substring(0, 42) + '...' : basename;
+            html += `<div class="tree-file-row" onclick="this.classList.toggle('active')">
+              <div class="tree-file-info">
+                <i data-lucide="file-spreadsheet" class="icon" style="opacity:.6"></i>
+                <div style="flex:1;min-width:0">
+                  <div class="tree-file-name" title="${esc(f.name)}">${esc(truncName)}</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:10px;color:var(--text3)">${formatFileSize(f.size)}</span>
+                <div class="tree-file-actions">
+                  <button class="btn-icon danger" onclick="event.stopPropagation();deleteInputFile('${escAttr(folder)}','${escAttr(f.name)}')" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
+                </div>
+              </div>
+            </div>`;
+          });
+          html += '</div></div>';
+        });
+        // Global drop zone at the bottom
+        html += `<div class="input-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleInputFolderDrop(event,'_root')">
+          <div class="drop-icon"><i data-lucide="upload" class="icon"></i></div>
+          Drag & drop files here to add to input/
+        </div>`;
+        html += '</div>';
+      }
+    }
+  } else if(mode === 'template') {
     const items = query ? STATE.templates.filter(t => t.name.toLowerCase().includes(query)) : STATE.templates;
     if(!items.length) { html = '<div class="empty-state">No templates found</div>'; }
     else {
@@ -2678,10 +3121,22 @@ function refreshPreview() {
       html = items.map(g => `
         <div class="card" style="margin-bottom:20px">
           <div class="preview-label-badge" style="background:var(--green-soft);color:var(--green)">Source Group Preview</div>
-          <h2 style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(g.name)}</h2>
-          <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Template: ${esc(g.templateName || 'None')}</div>
-          <div class="checklist">
-            ${g.sources.map(s => `<div class="check-row"><i data-lucide="link" class="icon" style="opacity:0.6"></i> ${esc(s.path)} ${s.label ? `<span style="opacity:0.5">(${esc(s.label)})</span>` : ''}</div>`).join('')}
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <h2 style="font-size:16px;font-weight:700">${esc(g.name)}</h2>
+            <span class="xlsx-stat-pill">${esc(g.templateName || 'None')}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            ${g.sources.map(s => {
+              const basename = getBaseName(s.path);
+              const truncName = basename.length > 50 ? basename.substring(0, 47) + '...' : basename;
+              return `<div class="compact-src-card" onclick="this.classList.toggle('expanded')">
+                <i data-lucide="link" class="icon" style="opacity:0.5;flex-shrink:0"></i>
+                <div style="flex:1;min-width:0">
+                  <div class="csc-name" title="${esc(s.path)}">${esc(truncName)}</div>
+                  <div class="csc-full">${esc(s.path)}${s.label ? ' ('+esc(s.label)+')' : ''}</div>
+                </div>
+              </div>`;
+            }).join('')}
           </div>
         </div>
       `).join('');
