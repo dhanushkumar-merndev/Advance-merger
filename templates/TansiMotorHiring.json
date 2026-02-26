@@ -1,0 +1,40 @@
+{
+  "columns": [
+    [
+      "Created Time",
+      "created_time"
+    ],
+    [
+      "Name",
+      "full_name",
+      "h",
+      "l"
+    ],
+    [
+      "Phone",
+      "phone_number",
+      "i",
+      "d"
+    ],
+    [
+      "Position",
+      "position_applying_for",
+      "h",
+      "u",
+      "l"
+    ],
+    [
+      "Email",
+      "email"
+    ]
+  ],
+  "unique_columns": [
+    "Phone"
+  ],
+  "sort_column": "Created Time",
+  "sort_order": "desc",
+  "google_links": [
+    "https://docs.google.com/spreadsheets/d/1D3_w5UCDlXIMIBeVwjOUjxFm7Dka_k-lJnJ68GdqTJU/edit?gid=0#gid=0",
+    "https://docs.google.com/spreadsheets/d/1D3_w5UCDlXIMIBeVwjOUjxFm7Dka_k-lJnJ68GdqTJU/edit?usp=sharing"
+  ]
+}

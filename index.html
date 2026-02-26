@@ -505,6 +505,13 @@ select.input { cursor: pointer; }
 /* Info box colors */
 .info-box { padding: 10px 14px; border-radius: 8px; font-size: 12px; margin-bottom: 14px; }
 .info-box.purple { background: var(--purple-soft); border: 1px solid #ddd6fe; color: var(--purple); }
+.info-box.blue { background: var(--blue-soft); border: 1px solid var(--blue-border); color: var(--blue); }
+.info-box.green { background: var(--green-soft); border: 1px solid #a7f3d0; color: var(--green); }
+.info-box.yellow { background: var(--yellow-soft); border: 1px solid #fde68a; color: var(--yellow); }
+.info-box.red { background: var(--red-soft); border: 1px solid #fecaca; color: var(--red); }
+.search-wrap { position: relative; flex: 1; max-width: 300px; margin-left: auto; }
+.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text3); pointer-events: none; }
+.search-input { padding-left: 32px !important; font-size: 13px; height: 36px; }
 
 .btn-disconnect {
   background: none; border: none; color: var(--text3); 
@@ -615,7 +622,13 @@ select.input { cursor: pointer; }
   <!-- ══ TEMPLATES ══ -->
   <div class="page" id="page-template">
     <div class="page-header"><h1>Formatting Templates</h1><p>Define how raw columns map to your output columns</p></div>
-    <div class="toolbar"><button class="btn btn-primary" onclick="openCreateTemplate()">+ New Template</button></div>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="openCreateTemplate()">+ New Template</button>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" class="input search-input" placeholder="Search templates..." oninput="renderTemplateList(this.value)">
+      </div>
+    </div>
     <div class="card-list" id="templateList">
       <div class="empty-state"><div class="es-icon"><i data-lucide="clipboard-list"></i></div><strong>No templates yet</strong>Create your first template to define output column mappings.</div>
     </div>
@@ -627,6 +640,10 @@ select.input { cursor: pointer; }
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openCreateGroup()">+ New Source Group</button>
       <button class="btn btn-ghost" onclick="navigate('campaigns')"><i data-lucide="target" class="icon"></i> Go to Campaigns</button>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" class="input search-input" placeholder="Search groups..." oninput="renderGroupList(this.value)">
+      </div>
     </div>
     <div class="card-list" id="groupList">
       <div class="empty-state"><div class="es-icon"><i data-lucide="package"></i></div><strong>No source groups yet</strong></div>
@@ -636,8 +653,14 @@ select.input { cursor: pointer; }
   <!-- ══ CAMPAIGNS ══ -->
   <div class="page" id="page-campaigns">
     <div class="page-header"><h1>Campaign Mode</h1><p>Group source groups into multi-tab Excel exports</p></div>
-    <div class="toolbar"><button class="btn btn-primary" onclick="openCreateCampaign()">+ New Campaign</button>
-    <button class="btn btn-ghost" onclick="navigate('sources')"><i data-lucide="package" class="icon"></i> Go to Sources</button></div>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="openCreateCampaign()">+ New Campaign</button>
+      <button class="btn btn-ghost" onclick="navigate('sources')"><i data-lucide="package" class="icon"></i> Go to Sources</button>
+      <div class="search-wrap">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" class="input search-input" placeholder="Search campaigns..." oninput="renderCampaignList(this.value)">
+      </div>
+    </div>
     <div class="card-list" id="campaignList">
       <div class="empty-state"><div class="es-icon"><i data-lucide="target"></i></div><strong>No campaigns yet</strong>Create a campaign to bundle source groups into a single Excel with multiple tabs.</div>
     </div>
@@ -646,10 +669,16 @@ select.input { cursor: pointer; }
   <!-- ══ PREVIEW ══ -->
   <div class="page" id="page-preview">
     <div class="page-header"><h1>Configuration Preview</h1><p>Visualize how your data will be processed before running</p></div>
-    <div class="preview-tabs">
-      <button class="preview-tab active" onclick="setPreviewMode('template', this)">Template Preview</button>
-      <button class="preview-tab" onclick="setPreviewMode('group', this)">Source Groups</button>
-      <button class="preview-tab" onclick="setPreviewMode('campaign', this)">Campaigns</button>
+    <div class="preview-tabs" style="display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;gap:4px">
+        <button class="preview-tab active" data-pm="template" onclick="setPreviewMode('template', this)">Template Preview</button>
+        <button class="preview-tab" data-pm="group" onclick="setPreviewMode('group', this)">Source Groups</button>
+        <button class="preview-tab" data-pm="campaign" onclick="setPreviewMode('campaign', this)">Campaigns</button>
+      </div>
+      <div class="search-wrap" style="margin-left:20px;margin-bottom:8px">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="previewSearch" class="input search-input" placeholder="Search preview..." oninput="refreshPreview()">
+      </div>
     </div>
     <div id="previewArea" class="preview-content"></div>
   </div>
@@ -693,7 +722,7 @@ select.input { cursor: pointer; }
         <div class="card" id="runConfig" style="margin-bottom:14px">
           <!-- MODE 1 -->
           <div class="mode-section active" id="runMode1">
-            <div class="info-box blue"><strong>Script flow:</strong> Enter 1 → pick input source → pick template → Quick or Advanced mode</div>
+            <div class="info-box purple"><strong>Script flow:</strong> Enter 1 → pick input source → pick template → Quick or Advanced mode</div>
             <div class="form-row">
               <label class="form-label">Select Template</label>
               <select id="runTemplate" class="input" onchange="showTemplateInfo(this.value)"></select>
@@ -786,6 +815,7 @@ select.input { cursor: pointer; }
           <div class="card-title">Setup Checklist</div>
           <div class="checklist" style="margin-bottom:14px">
             <div class="check-row"><span class="check-icon" id="chkFolderIcon">○</span> Folders: input/ output/ templates/ source_groups/ campaigns/</div>
+            <div id="runTemplateChecklist"></div>
             <div class="check-row"><span class="check-icon">○</span> advanced_merger.py in project root</div>
             <div class="check-row"><span class="check-icon">○</span> Python 3 + pandas + openpyxl</div>
           </div>
@@ -833,7 +863,11 @@ select.input { cursor: pointer; }
       <div style="background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:12px">
         <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px"><i data-lucide="globe" class="icon"></i> Google Sheets URL</div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:5px">Must be public/view</div>
-        <div style="display:flex;gap:4px"><input type="text" id="gsheetUrlInput" class="input" style="font-size:11px;padding:5px 8px" placeholder="https://docs.google.com/..."/><button class="btn btn-ghost btn-sm" onclick="fetchGoogleSheetCols()">Go</button></div>
+        <div style="display:flex;gap:4px;margin-bottom:8px">
+          <input type="text" id="gsheetUrlInput" class="input" style="font-size:11px;padding:5px 8px" placeholder="https://docs.google.com/..."/>
+          <button class="btn btn-ghost btn-sm" onclick="fetchGoogleSheetCols()">Go</button>
+        </div>
+        <div id="tplLinkList" style="display:flex;flex-direction:column;gap:4px"></div>
       </div>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:8px"><span id="scanStatus">Choose a method above to detect columns</span></div>
@@ -847,9 +881,18 @@ select.input { cursor: pointer; }
 
     <div class="section-divider" style="margin-top:20px">Sort Settings</div>
     <p style="font-size:12px;color:var(--text3);margin-bottom:8px">Automatically sort the final sheet by an output column (Ascending)</p>
-    <div>
-      <label class="form-label">Sort By Column</label>
-      <select id="tplSortCol" class="input" onchange="refreshIcons()"></select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label class="form-label">Sort By Column</label>
+        <select id="tplSortCol" class="input" onchange="refreshIcons()"></select>
+      </div>
+      <div>
+        <label class="form-label">Sort Order</label>
+        <select id="tplSortOrder" class="input">
+          <option value="asc">Ascending (A-Z)</option>
+          <option value="desc">Descending (Z-A)</option>
+        </select>
+      </div>
     </div>
 
     <div class="form-actions">
@@ -952,9 +995,11 @@ const STATE = {
   _activeOutputName: null,
   _currentWorkbook: null,
   _currentRows: [],
-  _currentHeaders: [],
-  _renderedRowCount: 0,
   _pendingHandle: null,
+  currentTemplateLinks: [],
+  previewMode: 'template',
+  viewerQuery: '',
+  _activeTemplateName: null
 };
 
 function save() {
@@ -992,7 +1037,7 @@ const FMT_DESCRIPTIONS = {
 };
 
 // ─── NAVIGATION ──────────────────────────────────────────────────────────
-function navigate(page) {
+async function navigate(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
@@ -1003,7 +1048,7 @@ function navigate(page) {
   if (page === 'template')  renderTemplateList();
   if (page === 'sources')   renderGroupList();
   if (page === 'campaigns') renderCampaignList();
-  if (page === 'run')       refreshRunPage();
+  if (page === 'run')       await refreshRunPage();
   if (page === 'preview')   { PREVIEW_MODE='template'; document.querySelectorAll('.preview-tab').forEach((t,i)=>t.classList.toggle('active',i===0)); renderPreview(); }
   if (page === 'viewer')    refreshViewerPage();
   refreshIcons();
@@ -1152,6 +1197,61 @@ function applyFolderUI(dir) {
   if (openBtn) openBtn.disabled = false;
 
   refreshIcons();
+  
+  // Load templates from folder on link
+  syncTemplatesWithFolder();
+}
+
+async function syncTemplatesWithFolder(shouldRefreshUI = false) {
+  if (!STATE.folderHandle) return;
+  try {
+    const tplDir = await STATE.folderHandle.getDirectoryHandle('templates', { create: true });
+    const templates = [];
+    for await (const [name, handle] of tplDir) {
+      if (handle.kind === 'file' && name.endsWith('.json')) {
+        try {
+          const file = await handle.getFile();
+          const text = await file.text();
+          const json = JSON.parse(text);
+          if (json.columns) {
+            templates.push(jsonFileToStateTpl(name.replace('.json', ''), json));
+          }
+        } catch (e) { console.warn('Failed to parse template:', name, e); }
+      }
+    }
+    if (templates.length > 0) {
+      STATE.templates = templates;
+      save();
+      if (shouldRefreshUI) {
+        if (typeof renderTemplateList === 'function' && document.getElementById('page-template').classList.contains('active')) renderTemplateList();
+      }
+    }
+  } catch (e) { console.warn('Sync templates failed:', e); }
+}
+
+function jsonFileToStateTpl(name, json) {
+  // Map JSON file format to STATE format
+  const columns = json.columns.map(colArr => {
+    const colName = colArr[0];
+    const tokens = colArr.slice(1).filter(t => typeof t === 'string');
+    const dict = colArr.find(t => typeof t === 'object' && t !== null) || null;
+    
+    // Separate src (first token) from formats (rest)
+    // In some cases src might be missing if it's just formatters or special codes
+    const src = tokens[0] || '';
+    const fmt = tokens.slice(1).join(' ');
+    
+    return { name: colName, src, fmt, dict };
+  });
+
+  return {
+    name: name,
+    columns: columns,
+    dedupCols: json.unique_columns || [],
+    sortCol: json.sort_column || "",
+    sortOrder: json.sort_order || "asc",
+    googleLinks: json.google_links || json.googleLinks || []
+  };
 }
 
 async function disconnectFolder() {
@@ -1238,12 +1338,15 @@ function refreshHome() {
 }
 
 // ─── TEMPLATES ─────────────────────────────────────────────────────────────
-function renderTemplateList() {
+function renderTemplateList(query='') {
   const el=document.getElementById('templateList');
-  if(!STATE.templates.length){el.innerHTML='<div class="empty-state"><div class="es-icon"><i data-lucide="clipboard-list"></i></div><strong>No templates yet</strong>Create your first template to define output column mappings.</div>';return;}
-  el.innerHTML=STATE.templates.map((t,i)=>`
+  const items = query ? STATE.templates.filter(t => t.name.toLowerCase().includes(query.toLowerCase())) : STATE.templates;
+  if(!items.length){el.innerHTML=query?'<div class="empty-state">No templates matching "'+esc(query)+'"</div>':'<div class="empty-state"><div class="es-icon"><i data-lucide="clipboard-list"></i></div><strong>No templates yet</strong>Create your first template to define output column mappings.</div>';return;}
+  el.innerHTML=items.map((t,idx)=>{
+    const i = STATE.templates.indexOf(t);
+    return `
     <div class="list-card">
-      <div class="lc-left"><div class="lc-icon blue"><i data-lucide="clipboard-list"></i></div><div><div class="lc-title">${esc(t.name)}</div><div class="lc-sub">${t.columns.length} columns · Dedup: ${t.dedupCols.length?t.dedupCols.join(', '):'none'} ${t.sortCol?` · Sort: ${t.sortCol}`:''}</div></div></div>
+      <div class="lc-left"><div class="lc-icon blue"><i data-lucide="clipboard-list"></i></div><div><div class="lc-title">${esc(t.name)}</div><div class="lc-sub">${t.columns.length} columns · Dedup: ${t.dedupCols.length?t.dedupCols.join(', '):'none'} ${t.sortCol?` · Sort: ${t.sortCol} (${t.sortOrder==='desc'?'Z-A':'A-Z'})`:''}</div></div></div>
 
       <div class="lc-actions">
 
@@ -1251,8 +1354,8 @@ function renderTemplateList() {
         <button class="btn-icon" onclick="editTemplate(${i})" title="Edit"><i data-lucide="edit-3" class="icon"></i></button>
         <button class="btn-icon danger" onclick="deleteTemplate(${i})" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
   refreshIcons();
 }
 
@@ -1263,10 +1366,13 @@ function openCreateTemplate() {
   document.getElementById('tplColumns').innerHTML='';
   document.getElementById('tplDedupCols').innerHTML='';
   document.getElementById('tplSortCol').innerHTML='<option value="">-- No Sorting --</option>';
+  document.getElementById('tplSortOrder').value='asc';
   document.getElementById('discoveredColsArea').innerHTML='';
 
   document.getElementById('scanStatus').textContent='Choose a method above to detect columns from your data';
   document.getElementById('colCount').textContent='0';
+  STATE.currentTemplateLinks = [];
+  renderTemplateLinkList();
   addTplColumn(); navigate('template'); openPanel('templatePanel');
 
 }
@@ -1282,6 +1388,9 @@ function editTemplate(i) {
   t.columns.forEach(col=>addTplColumn(col));
   refreshDedupCols(t.dedupCols||[]); 
   refreshSortCols(t.sortCol||'');
+  document.getElementById('tplSortOrder').value = t.sortOrder || 'asc';
+  STATE.currentTemplateLinks = t.googleLinks || [];
+  renderTemplateLinkList();
   updateColCount(); openPanel('templatePanel');
 
 
@@ -1390,7 +1499,8 @@ function saveTemplate(){
   if(!cols.length){toast('Add at least one column','error');return;}
   const dedupCols=[...document.querySelectorAll('#tplDedupCols input:checked')].map(i=>i.value);
   const sortCol=document.getElementById('tplSortCol').value;
-  const tpl={name,columns:cols,dedupCols,sortCol};
+  const sortOrder=document.getElementById('tplSortOrder').value;
+  const tpl={name,columns:cols,dedupCols,sortCol,sortOrder,googleLinks:STATE.currentTemplateLinks};
   if(STATE.editingTemplate!==null){STATE.templates[STATE.editingTemplate]=tpl;toast('Template updated','success');}
 
   else{STATE.templates.push(tpl);toast('Template saved','success');}
@@ -1412,7 +1522,9 @@ function templateToJson(tpl){
   return {
     columns,
     unique_columns: tpl.dedupCols,
-    sort_column: tpl.sortCol || ""
+    sort_column: tpl.sortCol || "",
+    sort_order: tpl.sortOrder || "asc",
+    google_links: tpl.googleLinks || []
   };
 }
 
@@ -1421,15 +1533,18 @@ const templateToJsonFile=templateToJson;
 function downloadTemplateJson(tpl){const json=templateToJson(tpl);const blob=new Blob([JSON.stringify(json,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=tpl.name+'.json';a.click();toast(`Downloaded ${tpl.name}.json`,'success');}
 
 // ─── SOURCE GROUPS ─────────────────────────────────────────────────────────
-function renderGroupList(){
+function renderGroupList(query=''){
   const el=document.getElementById('groupList');
-  if(!STATE.groups.length){el.innerHTML='<div class="empty-state"><div class="es-icon"><i data-lucide="package"></i></div><strong>No source groups yet</strong></div>';return;}
-  el.innerHTML=STATE.groups.map((g,i)=>`
+  const items = query ? STATE.groups.filter(g => g.name.toLowerCase().includes(query.toLowerCase())) : STATE.groups;
+  if(!items.length){el.innerHTML=query?'<div class="empty-state">No groups matching "'+esc(query)+'"</div>':'<div class="empty-state"><div class="es-icon"><i data-lucide="package"></i></div><strong>No source groups yet</strong></div>';return;}
+  el.innerHTML=items.map((g,idx)=>{
+    const i = STATE.groups.indexOf(g);
+    return `
     <div class="list-card">
       <div class="lc-left"><div class="lc-icon blue"><i data-lucide="package"></i></div><div><div class="lc-title">${esc(g.name)}</div><div style="display:flex;align-items:center;gap:8px;margin-top:4px"><div class="lc-sub">${g.sources.length} source(s)</div><div class="xlsx-stat-pill" style="font-size:10px">${esc(g.templateName||'No Template')}</div></div></div></div>
       <div class="lc-actions"><button class="btn-icon" onclick="editGroup(${i})"><i data-lucide="edit-3" class="icon"></i></button><button class="btn-icon danger" onclick="deleteGroup(${i})"><i data-lucide="trash-2" class="icon"></i></button></div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
   refreshIcons();
 }
 
@@ -1493,10 +1608,13 @@ function saveGroup(){
 function deleteGroup(i){confirmDialog('Delete Group',`Delete "${STATE.groups[i].name}"?`,()=>{STATE.groups.splice(i,1);save();renderGroupList();toast('Deleted');});}
 
 // ─── CAMPAIGNS ─────────────────────────────────────────────────────────────
-function renderCampaignList(){
+function renderCampaignList(query=''){
   const el=document.getElementById('campaignList');
-  if(!STATE.campaigns.length){el.innerHTML='<div class="empty-state"><div class="es-icon"><i data-lucide="target"></i></div><strong>No campaigns yet</strong>Create a campaign to bundle source groups into a single Excel with multiple tabs.</div>';return;}
-  el.innerHTML=STATE.campaigns.map((c,i)=>`
+  const items = query ? STATE.campaigns.filter(c => c.name.toLowerCase().includes(query.toLowerCase())) : STATE.campaigns;
+  if(!items.length){el.innerHTML=query?'<div class="empty-state">No campaigns matching "'+esc(query)+'"</div>':'<div class="empty-state"><div class="es-icon"><i data-lucide="target"></i></div><strong>No campaigns yet</strong>Create a campaign to bundle source groups into a single Excel with multiple tabs.</div>';return;}
+  el.innerHTML=items.map((c,idx)=>{
+    const i = STATE.campaigns.indexOf(c);
+    return `
     <div class="list-card">
       <div class="lc-left" style="min-width:0;flex:1">
         <div class="lc-icon purple"><i data-lucide="target"></i></div>
@@ -1509,8 +1627,8 @@ function renderCampaignList(){
         <button class="btn-icon" onclick="editCampaign(${i})"><i data-lucide="edit-3" class="icon"></i></button>
         <button class="btn-icon danger" onclick="deleteCampaign(${i})"><i data-lucide="trash-2" class="icon"></i></button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
   refreshIcons();
 }
 
@@ -1714,7 +1832,7 @@ function detectSrcType(path){
 }
 function srcTypeBadge(type){
   const map={
-    gsheet:['<i data-lucide="file-spreadsheet" class="icon"></i>','Google Sheet','badge-gsheet'],
+    gsheet:['<i data-lucide="file-spreadsheet" class="icon"></i>','Google Sheet (Verified)','badge-gsheet'],
     url:['<i data-lucide="globe" class="icon"></i>','URL','badge-url'],
     file:['<i data-lucide="file-text" class="icon"></i>','File','badge-file'],
     path:['<i data-lucide="folder" class="icon"></i>','Path','badge-path'],
@@ -1827,12 +1945,51 @@ async function fetchGoogleSheetCols(){
   let csvUrl=url;const match=url.match(/\/d\/([a-zA-Z0-9-_]+)/);
   if(match){const sheetId=match[1];const gidMatch=url.match(/[#&]gid=([0-9]+)/);const gid=gidMatch?gidMatch[1]:'0';csvUrl=`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;}
   try{
-    const resp=await fetch(csvUrl);if(!resp.ok)throw new Error('Fetch failed — sheet must be public');
+    const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(csvUrl);
+    const resp = await fetch(proxyUrl);
+    if(!resp.ok) throw new Error('Fetch failed — sheet must be public');
     const text=await resp.text();const fl=text.split('\n')[0];
     const headers=fl.split(',').map(h=>h.trim().replace(/^"|"$/g,'')).filter(Boolean);
-    if(headers.length){showDiscoveredCols(headers,[{name:'Google Sheet',count:headers.length}]);statusEl.textContent=`✅ ${headers.length} column(s)`;}
+    if(headers.length){
+      showDiscoveredCols(headers,[{name:'Google Sheet',count:headers.length}]);
+      statusEl.textContent=`✅ ${headers.length} column(s)`;
+      if(!STATE.currentTemplateLinks.includes(url)) {
+        STATE.currentTemplateLinks.push(url);
+        renderTemplateLinkList();
+      }
+      urlInput.value = '';
+    }
     else statusEl.textContent='No headers found';
   }catch(e){statusEl.textContent='Fetch failed';toast(e.message||'Could not fetch','error');}
+}
+
+function renderTemplateLinkList() {
+  const container = document.getElementById('tplLinkList');
+  if (!container) return;
+  if (!STATE.currentTemplateLinks.length) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = STATE.currentTemplateLinks.map((url, idx) => {
+    let short = url;
+    try {
+      const match = url.match(/\/d\/([^\/]+)/);
+      if (match) short = "Sheet: " + match[1].substring(0, 8) + "...";
+    } catch (e) {}
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;background:white;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;color:var(--text2)" title="${esc(url)}">${esc(short)}</span>
+        <button class="btn-icon danger" style="padding:2px;width:18px;height:18px" onclick="removeTemplateLink(${idx})">✕</button>
+      </div>
+    `;
+  }).join('');
+  refreshIcons();
+}
+
+function removeTemplateLink(idx) {
+  STATE.currentTemplateLinks.splice(idx, 1);
+  renderTemplateLinkList();
+  toast("Link removed");
 }
 
 function showDiscoveredCols(cols,filesSeen=[]){
@@ -1867,15 +2024,27 @@ async function scanOutputFolder(showLoading=true){
     }
     if(!files.length){sidebar.innerHTML='<div style="padding:20px 10px;font-size:12px;color:var(--text3);text-align:center;border:1.5px dashed var(--border);border-radius:10px">No output files found in <code style="font-size:11px">/output</code></div>';return;}
     files.sort((a,b)=>b.lastModified-a.lastModified);STATE._outputFiles=files;
-    renderHierarchicalFileSelector(files);
+    const searchHtml = `<div class="search-wrap" style="max-width:none;margin-bottom:12px">
+      <i data-lucide="search" class="search-icon"></i>
+      <input type="text" class="input search-input" placeholder="Search files..." value="${escAttr(STATE.viewerQuery)}" oninput="searchViewerFiles(this.value)">
+    </div>`;
+    sidebar.innerHTML = searchHtml + '<div id="viewerTree"></div>';
+    renderHierarchicalFileSelector(files, STATE.viewerQuery);
   }catch(e){sidebar.innerHTML='<div style="padding:12px;font-size:12px;color:var(--red);text-align:center">⚠ Scan failed</div>';console.error(e);}
 }
 
-function renderHierarchicalFileSelector(files){
-  const el=document.getElementById('outputFileSelector');
+function searchViewerFiles(query) {
+  STATE.viewerQuery = query;
+  renderHierarchicalFileSelector(STATE._outputFiles, query);
+}
+
+function renderHierarchicalFileSelector(files, query=''){
+  const el=document.getElementById('viewerTree');
+  if(!el) return;
+  const filtered = query ? files.filter(f => f.name.toLowerCase().includes(query.toLowerCase())) : files;
   const tree = { 'Templates': {}, 'Campaigns': {}, 'Other': [] };
   
-  files.forEach(f=>{
+  filtered.forEach(f=>{
     const base=f.name.replace(/\.[^.]+$/,'');
     const tpl=STATE.templates.find(t=>{
       const sn=t.name.replace(/[^\w\-]/g,'_');
@@ -2003,9 +2172,42 @@ async function saveActiveCampaignAsBaseline() {
       const newSheet = newWb.Sheets[sheetName];
       const newRows = newSheet ? XLSX.utils.sheet_to_json(newSheet) : [];
 
-      // Combine old + new
-      const combined = [...oldRows, ...newRows];
+      // DEDUPLICATION: Find unique columns from template
+      let keys = [];
+      const group = STATE.groups.find(g => g.name === sheetName);
+      let tplName = group ? group.templateName : (STATE._activeTemplateName || sheetName);
+      const tpl = STATE.templates.find(t => t.name === tplName);
+      
+      if (tpl && tpl.dedupCols && tpl.dedupCols.length > 0) {
+        keys = tpl.dedupCols;
+      }
 
+      // Helper to generate a stable key for a row
+      const getRowKey = (r, kList) => {
+        const getVal = (row, k) => {
+          if (row[k] !== undefined) return String(row[k]).trim().toLowerCase();
+          const foundKey = Object.keys(row).find(ak => ak.toLowerCase() === k.toLowerCase());
+          return foundKey ? String(row[foundKey]).trim().toLowerCase() : '';
+        };
+
+        if (kList.length > 0) {
+          // Use template-defined unique columns
+          return kList.map(k => getVal(r, k)).join('|');
+        } else {
+          // Fallback: use all columns normalized
+          return Object.keys(r).sort().map(k => getVal(r, k)).join('|');
+        }
+      };
+
+      const seen = new Set(oldRows.map(r => getRowKey(r, keys)));
+      const filteredNew = newRows.filter(r => {
+        const key = getRowKey(r, keys);
+        if (!key || key === '|' || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const combined = [...oldRows, ...filteredNew];
       const ws = XLSX.utils.json_to_sheet(combined);
       XLSX.utils.book_append_sheet(mergedWb, ws, sheetName.substring(0,31));
     });
@@ -2038,9 +2240,19 @@ async function deleteOutputFile(name){
 
 async function loadSelectedOutput(name){
   if(!name)return;const fileInfo=STATE._outputFiles.find(f=>f.name===name);if(!fileInfo)return;
-  STATE._activeOutputName=name;const file=await fileInfo.handle.getFile();displayOutputFile(file);
+  STATE._activeOutputName=name;
+  
+  // Detect template for this file
+  const base=name.replace(/\.[^.]+$/,'');
+  const tpl=STATE.templates.find(t=>{
+    const sn=t.name.replace(/[^\w\-]/g,'_');
+    return base===sn || base===t.name || base.startsWith(sn+'_') || base.startsWith(t.name+'_');
+  });
+  STATE._activeTemplateName = tpl ? tpl.name : null;
+
+  const file=await fileInfo.handle.getFile();displayOutputFile(file);
   document.querySelectorAll('.tree-file-row').forEach(row=>{row.classList.toggle('active',row.querySelector('.tree-file-name')?.textContent===name);});
-  refreshViewerPage(); // Call refreshViewerPage to update the Save Baseline button visibility
+  refreshViewerPage();
 }
 
 async function displayOutputFile(file){
@@ -2160,13 +2372,16 @@ function copyTableToClipboard(){
 }
 
 // ─── RUN PAGE ──────────────────────────────────────────────────────────────
-function refreshRunPage(){
+async function refreshRunPage(){
+  await syncTemplatesWithFolder(true);
   const sortedTpls = [...STATE.templates].sort((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-  const tplOpts='<option value="">-- Select Template --</option>'+sortedTpls.map(t=>`<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  const currentTpl = document.getElementById('runTemplate').value;
+  const tplOpts='<option value="">-- Select Template --</option>'+sortedTpls.map(t=>`<option value="${esc(t.name)}" ${t.name===currentTpl?'selected':''}>${esc(t.name)}</option>`).join('');
   document.getElementById('runTemplate').innerHTML=tplOpts;
   
   const sortedCamps = [...STATE.campaigns].sort((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-  const campOpts='<option value="">-- Select Config --</option>'+sortedCamps.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  const currentCamp = document.getElementById('runCampaignConfig')?.value;
+  const campOpts='<option value="">-- Select Config --</option>'+sortedCamps.map(c=>`<option value="${esc(c.name)}" ${c.name===currentCamp?'selected':''}>${esc(c.name)}</option>`).join('');
   if(document.getElementById('runCampaignConfig'))document.getElementById('runCampaignConfig').innerHTML=campOpts;
   
   // Clean up listeners
@@ -2223,6 +2438,40 @@ function renderCustomDedupList() {
 function showTemplateInfo(name){
   const tpl=STATE.templates.find(t=>t.name===name);const el=document.getElementById('runTemplate1Info');if(!el)return;
   el.innerHTML=tpl?`${tpl.columns.length} columns · Dedup: ${tpl.dedupCols.length?tpl.dedupCols.join(', '):'none'}`:'';
+  
+  const links = tpl ? (tpl.googleLinks || tpl.google_links || []) : [];
+  const checklistEl = document.getElementById('runTemplateChecklist');
+  if (checklistEl) {
+    if (links.length > 0) {
+      checklistEl.innerHTML = links.map(link => {
+        const shortUrl = link.length > 40 ? link.substring(0, 37) + '...' : link;
+        return `<div class="check-row"><span class="check-icon" style="color:var(--green)">✓</span> ${esc(shortUrl)} (OK)</div>`;
+      }).join('');
+
+      // Auto-populate External URLs section
+      const extContainer = document.getElementById('runExtFiles1');
+      if (extContainer) {
+        extContainer.innerHTML = '';
+        links.forEach(url => {
+          const div = document.createElement('div');
+          div.className = 'smart-src-row';
+          div.innerHTML = buildSrcRow({path: url, label: 'Sheet from Template'}, 'ext-file-label', 'ext-file-path');
+          extContainer.appendChild(div);
+          initSrcRow(div, '.ext-file-path', '.ext-file-label');
+        });
+        // Switch radio to external
+        const extRadio = document.querySelector('input[name="runSrc1"][value="external"]');
+        if (extRadio) {
+          extRadio.checked = true;
+          toggleExtFiles1(); 
+        }
+        refreshIcons();
+      }
+    } else {
+      checklistEl.innerHTML = '';
+    }
+  }
+  
   toggleCustomDedupUI();
 }
 
@@ -2378,6 +2627,92 @@ function dictKvRow(key='',val=''){return`<div class="dict-kv-row"><input type="t
 function addDictRow(btn){const list=btn.previousElementSibling;const row=document.createElement('div');row.className='dict-kv-row';row.innerHTML=dictKvRow('','');list.appendChild(row);row.querySelector('.dict-key').focus();}
 function readDictEditor(colCard){const editor=colCard.querySelector('.dict-editor');if(!editor||editor.style.display==='none')return null;const dict={};const defaultEl=editor.querySelector('.dict-default-val');if(defaultEl&&defaultEl.value.trim())dict['__default__']=defaultEl.value.trim();editor.querySelectorAll('.dict-kv-row').forEach(row=>{const k=row.querySelector('.dict-key').value.trim().toLowerCase();const v=row.querySelector('.dict-val').value.trim();if(k)dict[k]=v;});return dict;}
 function clearDictEditor(editor){if(!editor)return;const kvList=editor.querySelector('.dict-kv-list');if(!kvList)return;kvList.innerHTML='';const row=document.createElement('div');row.className='dict-kv-row';row.innerHTML=dictKvRow('','');kvList.appendChild(row);const defEl=editor.querySelector('.dict-default-val');if(defEl)defEl.value='';const ta=editor.querySelector('.dict-bulk-textarea');if(ta)ta.value='';toast('Cleared');}
+
+// ─── PREVIEW ──────────────────────────────────────────────────────────────
+function setPreviewMode(mode, btn) {
+  STATE.previewMode = mode;
+  document.querySelectorAll('.preview-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.pm === mode);
+  });
+  refreshPreview();
+}
+
+function refreshPreview() {
+  const mode = STATE.previewMode || 'template';
+  const query = document.getElementById('previewSearch')?.value?.toLowerCase() || '';
+  const area = document.getElementById('previewArea');
+  if(!area) return;
+
+  let html = '';
+  if(mode === 'template') {
+    const items = query ? STATE.templates.filter(t => t.name.toLowerCase().includes(query)) : STATE.templates;
+    if(!items.length) { html = '<div class="empty-state">No templates found</div>'; }
+    else {
+      html = items.map(t => `
+        <div class="card" style="margin-bottom:20px">
+          <div class="preview-label-badge">Output Schema Preview</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <h2 style="font-size:18px;font-weight:700">${esc(t.name)}</h2>
+            <div class="xlsx-stat-pill">${t.columns.length} Columns</div>
+          </div>
+          <div class="output-table-wrap" style="max-height:300px">
+            <table id="outputTable">
+              <thead><tr>${t.columns.map(c => `<th>${esc(c.name)}</th>`).join('')}</tr></thead>
+              <tbody>
+                <tr>${t.columns.map(c => `<td>${esc(c.name)}_1</td>`).join('')}</tr>
+                <tr>${t.columns.map(c => `<td><span style="opacity:0.5">${esc(c.name)}_2</span></td>`).join('')}</tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            ${t.dedupCols.length ? `<span class="xlsx-stat-pill" style="background:var(--purple-soft);color:var(--purple);border-color:#ddd6fe">Dedup: ${t.dedupCols.join(', ')}</span>` : ''}
+            ${t.sortCol ? `<span class="xlsx-stat-pill" style="background:var(--blue-soft);color:var(--blue)">Sort: ${t.sortCol} (${t.sortOrder==='desc'?'Z-A':'A-Z'})</span>` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+  } else if(mode === 'group') {
+    const items = query ? STATE.groups.filter(g => g.name.toLowerCase().includes(query)) : STATE.groups;
+    if(!items.length) { html = '<div class="empty-state">No source groups found</div>'; }
+    else {
+      html = items.map(g => `
+        <div class="card" style="margin-bottom:20px">
+          <div class="preview-label-badge" style="background:var(--green-soft);color:var(--green)">Source Group Preview</div>
+          <h2 style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(g.name)}</h2>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Template: ${esc(g.templateName || 'None')}</div>
+          <div class="checklist">
+            ${g.sources.map(s => `<div class="check-row"><i data-lucide="link" class="icon" style="opacity:0.6"></i> ${esc(s.path)} ${s.label ? `<span style="opacity:0.5">(${esc(s.label)})</span>` : ''}</div>`).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+  } else if(mode === 'campaign') {
+    const items = query ? STATE.campaigns.filter(c => c.name.toLowerCase().includes(query)) : STATE.campaigns;
+    if(!items.length) { html = '<div class="empty-state">No campaigns found</div>'; }
+    else {
+      html = items.map(c => `
+        <div class="card" style="margin-bottom:20px">
+          <div class="preview-label-badge" style="background:var(--purple-soft);color:var(--purple)">Campaign Preview</div>
+          <h2 style="font-size:18px;font-weight:700;margin-bottom:12px">${esc(c.name)}</h2>
+          <div class="qa-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));gap:10px">
+            ${c.groups.map(gname => {
+              const g = STATE.groups.find(gr => gr.name === gname);
+              return `
+                <div style="padding:10px;background:var(--surface2);border-radius:8px;border:1.5px solid var(--border)">
+                  <div style="font-weight:700;font-size:13px">${esc(gname)}</div>
+                  <div style="font-size:11px;color:var(--text3)">${g ? g.sources.length : '?'} sources</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  area.innerHTML = html;
+  refreshIcons();
+}
 function parseBulkPaste(editor){
   const textarea=editor.querySelector('.dict-bulk-textarea');if(!textarea)return;
   const raw=textarea.value.trim();if(!raw){toast('Paste some key=value lines first','error');return;}

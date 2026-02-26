@@ -4,6 +4,9 @@ import json
 import re
 import sys
 import shutil
+import io
+import time
+import urllib.request
 from datetime import datetime
 from openpyxl.styles import Alignment, Font
 
@@ -26,18 +29,11 @@ ALIGN_CODES = {"l": "left", "r": "right"}
 ALL_CODES = FORMAT_CODES | set(ALIGN_CODES.keys())
 
 def find_template(tname):
-    """Try multiple variations of template name to find the JSON file."""
-    candidates = [
-        tname,
-        tname.replace(" ", "_"),
-        tname.strip(),
-        tname.strip().replace(" ", "_"),
-    ]
+    candidates = [tname, tname.replace(" ", "_"), tname.strip(), tname.strip().replace(" ", "_")]
     for c in candidates:
         p = os.path.join(TEMPLATE_DIR, c + ".json")
         if os.path.exists(p):
             return p
-    # fuzzy: compare lowercased filenames
     available = [f for f in os.listdir(TEMPLATE_DIR) if f.endswith('.json')]
     tname_lower = tname.lower().replace(" ", "").replace("_", "")
     for f in available:
@@ -48,19 +44,48 @@ def find_template(tname):
 
 def convert_google_sheets_url(url):
     if "docs.google.com/spreadsheets" in url:
+        if "export?format=csv" in url:
+            return url
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
         if match:
             sheet_id = match.group(1)
-            gid_match = re.search(r'[#&]gid=([0-9]+)', url)
+            gid_match = re.search(r'[#&?]gid=([0-9]+)', url)
             gid = gid_match.group(1) if gid_match else "0"
-            return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+            csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+            print(f"  Sheet  →  {csv_url}")
+            return csv_url
     return url
 
 def read_file(path):
     if "docs.google.com/spreadsheets" in path:
         path = convert_google_sheets_url(path)
+
     if path.startswith("http://") or path.startswith("https://"):
-        df = pd.read_csv(path)
+        last_err = None
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(path, headers={
+                    'User-Agent': 'Mozilla/5.0',
+                    'Accept': 'text/csv,*/*'
+                })
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    content = resp.read().decode('utf-8', errors='replace')
+                df = pd.read_csv(io.StringIO(content))
+                # ← return is here, inside the try after successful read
+                df.columns = (
+                    df.columns.astype(str)
+                    .str.replace("\ufeff", "", regex=False)
+                    .str.strip()
+                    .str.lower()
+                )
+                print(f"  Fetched  {len(df)} rows")
+                return df
+            except Exception as e:
+                last_err = e
+                print(f"  Fetch attempt {attempt+1} failed: {e}")
+                time.sleep(2)
+        raise Exception(f"Failed to fetch after 3 attempts: {last_err}")
+
     elif path.endswith(".xlsx"):
         df = pd.read_excel(path)
     else:
@@ -71,6 +96,7 @@ def read_file(path):
                 df = pd.read_csv(path, encoding="utf-8")
             except:
                 df = pd.read_csv(path, encoding="latin1")
+
     df.columns = (
         df.columns.astype(str)
         .str.replace("\ufeff", "", regex=False)
@@ -109,9 +135,7 @@ def apply_format_series(series, code):
         return series
     return series
 
-def process_df(df_list, template, output_name, quick_mode, template_unique_cols, sort_col=None):
-
-
+def process_df(df_list, template, output_name, quick_mode, template_unique_cols, sort_col=None, sort_order="asc"):
     merged = pd.concat(df_list, ignore_index=True)
     output = {}
     column_alignments = {}
@@ -178,13 +202,10 @@ def process_df(df_list, template, output_name, quick_mode, template_unique_cols,
     selected_unique_cols = [c for c in template_unique_cols if c in final_df.columns] if quick_mode else []
     if selected_unique_cols:
         final_df = final_df.drop_duplicates(subset=selected_unique_cols, keep="first")
-    
     if sort_col and sort_col in final_df.columns:
-        final_df = final_df.sort_values(by=sort_col, ascending=True)
-        
+        is_asc = (str(sort_order).lower() != "desc")
+        final_df = final_df.sort_values(by=sort_col, ascending=is_asc)
     return final_df, column_alignments
-
-
 
 def style_sheet(ws, aligns):
     header_font = Font(bold=True)
@@ -208,9 +229,10 @@ def run_campaign(config, output_name, incremental=False):
     if incremental and os.path.exists(baseline_path):
         try:
             baseline_sheets = pd.read_excel(baseline_path, sheet_name=None)
-            print(f"Baseline loaded  {baseline_path}")
+            total_bl = sum(len(v) for v in baseline_sheets.values())
+            print(f"Baseline loaded  {total_bl} rows")
         except:
-            print("Baseline not readable, running full merge.")
+            print("Baseline unreadable, running full merge.")
 
     writer = pd.ExcelWriter(out_path, engine='openpyxl')
     sheets_added = 0
@@ -221,7 +243,6 @@ def run_campaign(config, output_name, incremental=False):
         sources = group.get("sources", [])
         tname = group.get("template", "")
 
-        # ── FUZZY TEMPLATE FINDER ──
         tpl_path = find_template(tname)
         if not tpl_path:
             print(f"Template not found  '{tname}'")
@@ -233,8 +254,7 @@ def run_campaign(config, output_name, incremental=False):
             template = tdata["columns"] if isinstance(tdata, dict) else tdata
             u_cols = tdata.get("unique_columns", []) if isinstance(tdata, dict) else []
             s_col = tdata.get("sort_column") if isinstance(tdata, dict) else None
-
-
+            s_order = tdata.get("sort_order", "asc") if isinstance(tdata, dict) else "asc"
 
         print(f"Processing  {gname}...")
         try:
@@ -246,13 +266,10 @@ def run_campaign(config, output_name, incremental=False):
             print(f"  Source load failed: {e}")
             continue
 
-        df, aligns = process_df(group_dfs, template, output_name, True, u_cols, sort_col=s_col)
+        df, aligns = process_df(group_dfs, template, output_name, True, u_cols, sort_col=s_col, sort_order=s_order)
 
-
-
-        # Incremental: remove rows already in baseline
         if incremental and gname in baseline_sheets and u_cols:
-            b_df = baseline_sheets[gname]
+            b_df = baseline_sheets[gname].copy()
             b_df.columns = b_df.columns.astype(str).str.strip()
             valid_u_cols = [c for c in u_cols if c in df.columns and c in b_df.columns]
             if valid_u_cols:
@@ -260,30 +277,28 @@ def run_campaign(config, output_name, incremental=False):
                 b_key  = b_df[valid_u_cols].astype(str).apply(lambda x: x.str.strip().str.lower())
                 df_key_str = df_key.apply(lambda r: "|".join(r.values), axis=1)
                 b_key_str  = b_key.apply(lambda r: "|".join(r.values), axis=1)
-                df = df[~df_key_str.isin(set(b_key_str))]
+                df = df[~df_key_str.isin(set(b_key_str))].reset_index(drop=True)
 
         row_count = len(df)
         total_new += row_count
-        print(f"  {row_count} rows  ->  {gname}")
+        print(f"  {row_count} new rows  ->  {gname}")
 
         sheet_name = gname[:30]
         df.to_excel(writer, sheet_name=sheet_name, index=False)
         style_sheet(writer.sheets[sheet_name], aligns)
         sheets_added += 1
 
-    # Only save if at least one sheet was written
     if sheets_added == 0:
         writer.close()
-        # Clean up empty file
         try:
             os.remove(out_path)
         except:
             pass
-        print("No sheets written. Check template names match your source groups.")
+        print("No sheets written.")
         return None, baseline_path
 
     writer.close()
-    print(f"Done  {out_path}  ({total_new} total rows)")
+    print(f"Done  {out_path}  ({total_new} rows)")
     return out_path, baseline_path
 
 # ── CLI MODE ──────────────────────────────────────────────────────────────────
@@ -292,7 +307,6 @@ if len(sys.argv) > 2:
     config = json.loads(sys.argv[2])
     output_name = config.get("output", "MERGED_OUTPUT")
     incremental = config.get("incremental", False)
-
     if mode == "4":
         run_campaign({"groups": config.get("groups", [])}, output_name, incremental)
     exit()
@@ -315,18 +329,14 @@ if choice == "2":
     print("\nCAMPAIGNS:")
     [print(f"{i+1}. {c.replace('.json','')}") for i, c in enumerate(camps)]
     sel = int(input("Select: "))
-
     with open(os.path.join(CAMP_DIR, camps[sel-1]), encoding='utf-8') as f:
         config = json.load(f)
-
     output_name = config.get("name", "CAMPAIGN_OUTPUT")
-
     print("\nMode:")
     print("1. Full merge  (all rows)")
     print("2. Incremental  (only new rows vs baseline)")
     inc_choice = input("Choose (1/2): ").strip()
     incremental = (inc_choice == "2")
-
     groups = []
     for gname in config.get("groups", []):
         g_path = os.path.join(SOURCE_GRP_DIR, gname + ".json")
@@ -342,12 +352,10 @@ if choice == "2":
             "sources": [s.get("path") for s in gdata.get("sources", [])],
             "template": gdata.get("templateName", "")
         })
-
     out_path, baseline_path = run_campaign({"groups": groups}, output_name, incremental)
-
     if out_path:
-        print("\nSave as baseline for future incremental runs? (y/n): ", end="")
-        if input().strip().lower() == "y":
+        save_bl = input("\nSave baseline? (y/n): ").strip().lower()
+        if save_bl == "y":
             shutil.copy2(out_path, baseline_path)
             print(f"Baseline saved  {baseline_path}")
     exit()
@@ -400,18 +408,12 @@ if choice == "3":
                 rule.append(t)
         template.append(rule)
         print(f"Added  {name}")
-    
     s_col = input("\nSort by column name (ENTER for none): ").strip()
-
-    tname = input("\nSave template as: ").strip()
-
-
+    tname = input("Save template as: ").strip()
     if not tname.endswith('.json'):
         tname += '.json'
     with open(os.path.join(TEMPLATE_DIR, tname), "w", encoding='utf-8') as f:
         json.dump({"columns": template, "unique_columns": [], "sort_column": s_col}, f, indent=2)
-
-
     print(f"Saved  {tname}")
     exit()
 
@@ -424,14 +426,11 @@ if choice == "1":
         template = tdata["columns"] if isinstance(tdata, dict) else tdata
         u_cols = (tdata.get("unique_columns") or tdata.get("dedupCols") or []) if isinstance(tdata, dict) else []
         s_col = tdata.get("sort_column") if isinstance(tdata, dict) else None
-
-
-
+        s_order = (tdata.get("sort_order") or "asc") if isinstance(tdata, dict) else "asc"
     print("\nMode:")
     print("1. Quick  (auto dedup + auto filename)")
     print("2. Advanced  (custom name & dedup)")
     p_mode = input("Choose (1/2): ").strip()
-
     out_name = os.path.splitext(templates[tsel-1])[0]
     if p_mode == "2":
         out_name = input(f"Output filename [{out_name}]: ").strip() or out_name
@@ -444,11 +443,8 @@ if choice == "1":
             u_cols = [c.strip() for c in input("Columns (comma separated): ").split(",") if c.strip()]
         elif d_choice == "3":
             u_cols = []
-
     print("Processing...")
-    df, aligns = process_df(dfs, template, out_name, True, u_cols, sort_col=s_col)
-
-
+    df, aligns = process_df(dfs, template, out_name, True, u_cols, sort_col=s_col, sort_order=s_order)
     ts = datetime.now().strftime("%y%m%d_%H%M")
     out_path = os.path.join(OUTPUT_DIR, f"{out_name}_{ts}.xlsx")
     df.to_excel(out_path, index=False)
