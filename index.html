@@ -329,13 +329,25 @@ select.input { cursor: pointer; }
 }
 
 .output-table-wrap.expanded { position: fixed; top: 20px; left: 20px; right: 20px; bottom: 20px; z-index: 1000; max-height: none; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
-#outputTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; color: var(--text); }
-#outputTable th { position: sticky; top: 0; background: var(--surface2); color: var(--blue); font-weight: 700; padding: 11px 16px; text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap; z-index: 10; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
-#outputTable td { padding: 9px 16px; border-bottom: 1px solid var(--surface3); white-space: nowrap; transition: background .15s; }
-#outputTable tr:last-child td { border-bottom: none; }
-#outputTable tr:hover td { background: var(--blue-soft); cursor: pointer; }
-#outputTable tr:nth-child(even) td { background: var(--surface2); }
-#outputTable tr:nth-child(even):hover td { background: var(--blue-soft); }
+#outputTable, #viewerTable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; color: var(--text); table-layout: auto; }
+#outputTable th, #viewerTable th { position: sticky; top: 0; background: var(--surface2); color: var(--blue); font-weight: 700; padding: 11px 16px; border-bottom: 2px solid var(--border); white-space: nowrap; z-index: 10; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+#outputTable td, #viewerTable td { padding: 9px 16px; border-bottom: 1px solid var(--surface3); white-space: nowrap; transition: background .15s; }
+#outputTable td.date-col, #viewerTable td.date-col { white-space: normal; min-width: 160px; }
+#outputTable tr:last-child td, #viewerTable tr:last-child td { border-bottom: none; }
+#outputTable tr:hover td, #viewerTable tr:hover td { background: var(--blue-soft); cursor: pointer; }
+#outputTable tr:nth-child(even) td, #viewerTable tr:nth-child(even) td { background: var(--surface2); }
+#outputTable tr:nth-child(even):hover td, #viewerTable tr:nth-child(even):hover td { background: var(--blue-soft); }
+
+/* Alignment Classes */
+.align-left   { text-align: left !important; }
+.align-right  { text-align: right !important; }
+.align-center { text-align: center !important; }
+
+/* Generic table styles for Preview */
+.preview-content table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); }
+.preview-content th, .preview-content td { padding: 10px; border: 1px solid var(--border); font-size: 12px; }
+.preview-content th { background: var(--surface2); color: var(--blue); font-weight: 700; }
+.preview-content td.date-col { white-space: normal; min-width: 140px; }
 .xlsx-stat-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: var(--blue-soft); border: 1px solid var(--blue-border); color: var(--blue); }
 .expand-btn { display: flex; align-items: center; gap: 6px; background: var(--surface2); border: 1.5px solid var(--border); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; transition: .2s; font-family: var(--font); }
 .expand-btn:hover { background: var(--blue-soft); color: var(--blue); border-color: var(--blue-border); }
@@ -599,6 +611,7 @@ select.input { cursor: pointer; }
   </div>
   <nav class="nav">
     <button class="nav-item active" data-page="home" onclick="navigate('home')"><span class="ni"><i data-lucide="layout-dashboard" class="icon"></i></span> Dashboard</button>
+    <button class="nav-item" data-page="input" onclick="navigate('input')"><span class="ni"><i data-lucide="folder-open" class="icon"></i></span> Input Files</button>
     <button class="nav-item" data-page="run" onclick="navigate('run')"><span class="ni"><i data-lucide="rocket" class="icon"></i></span> Run Merger</button>
     <div class="nav-sep"></div>
     <button class="nav-item" data-page="template" onclick="navigate('template')"><span class="ni"><i data-lucide="clipboard-list" class="icon"></i></span> Templates</button>
@@ -661,6 +674,24 @@ select.input { cursor: pointer; }
     </div>
   </div>
 
+  <!-- ══ INPUT FILES ══ -->
+  <div class="page" id="page-input">
+    <div class="page-header">
+      <h1>Input Files</h1>
+      <p>Manage your project's raw data files in <code style="font-family:var(--mono);background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:12px">input/</code></p>
+    </div>
+    <div class="toolbar" style="display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="refreshInputPage()"><i data-lucide="refresh-cw" class="icon"></i> Refresh Tree</button>
+      </div>
+      <div class="search-wrap" style="max-width:300px">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="text" id="inputSearch" class="input search-input" placeholder="Search input files..." oninput="refreshInputPage()">
+      </div>
+    </div>
+    <div id="inputArea" class="preview-content" style="min-height:500px"></div>
+  </div>
+
   <!-- ══ TEMPLATES ══ -->
   <div class="page" id="page-template">
     <div class="page-header"><h1>Formatting Templates</h1><p>Define how raw columns map to your output columns</p></div>
@@ -713,7 +744,6 @@ select.input { cursor: pointer; }
     <div class="page-header"><h1>Configuration Preview</h1><p>Visualize how your data will be processed before running</p></div>
     <div class="preview-tabs" style="display:flex;align-items:center;justify-content:space-between">
       <div style="display:flex;gap:4px">
-        <button class="preview-tab" data-pm="input" onclick="setPreviewMode('input', this)">Input</button>
         <button class="preview-tab active" data-pm="template" onclick="setPreviewMode('template', this)">Template Preview</button>
         <button class="preview-tab" data-pm="group" onclick="setPreviewMode('group', this)">Source Groups</button>
         <button class="preview-tab" data-pm="campaign" onclick="setPreviewMode('campaign', this)">Campaigns</button>
@@ -1030,6 +1060,9 @@ const STATE = {
   editingCampaign: null,
   folderHandle: null,
   discoveredCols: [],
+  _openNodes: new Set(), // Persistent tree state
+  _outputFiles: [],
+  _previewShowAll: { template: false, group: false, campaign: false },
   _lastCmd: '',
   _lastOneShot: '',
   _lastInputs: [],
@@ -1059,6 +1092,7 @@ const FORMAT_CODES = [
   { code:'h', label:'Title Case', cat:'text' },
   { code:'l', label:'Align Left', cat:'text' },
   { code:'r', label:'Align Right', cat:'text' },
+  { code:'z', label:'Align Center', cat:'text' },
   { code:'d', label:'Last 10 Digits', cat:'phone' },
   { code:'e', label:'Add +91', cat:'phone' },
   { code:'i', label:'Integers Only', cat:'phone' },
@@ -1074,7 +1108,7 @@ const FORMAT_CODES = [
 ];
 const CAT_LABELS = { text: '<i data-lucide="type" class="icon"></i> Text', phone: '<i data-lucide="phone" class="icon"></i> Phone', time: '<i data-lucide="calendar" class="icon"></i> Date/Time', clean: '<i data-lucide="sparkles" class="icon"></i> Clean', special: '<i data-lucide="zap" class="icon"></i> Special' };
 const FMT_DESCRIPTIONS = {
-  f:'→ UPPERCASE', g:'→ lowercase', h:'→ Title Case', l:'left-align', r:'right-align',
+  f:'→ UPPERCASE', g:'→ lowercase', h:'→ Title Case', l:'left-align', r:'right-align', z:'center-align',
   d:'last 10 digits', e:'prepend +91', i:'integers only', a:"today's date", b:'HH:MM',
   c:'HH:MM:SS', j:'no dashes', u:'no underscores', x:'no dots', '0':'blank', k:'dict lookup', q:'dict + default'
 };
@@ -1092,53 +1126,24 @@ async function navigate(page) {
   if (page === 'sources')   renderGroupList();
   if (page === 'campaigns') renderCampaignList();
   if (page === 'run')       await refreshRunPage();
-  if (page === 'preview')   { PREVIEW_MODE='template'; document.querySelectorAll('.preview-tab').forEach(t=>t.classList.toggle('active',t.dataset.pm==='template')); renderPreview(); }
+  if (page === 'preview') {
+    STATE.previewMode = 'template';
+    STATE._previewShowAll = { template: false, group: false, campaign: false };
+    document.querySelectorAll('.preview-tab').forEach(t => t.classList.toggle('active', t.dataset.pm === 'template'));
+    refreshPreview();
+  }
+  if (page === 'input')     refreshInputPage();
   if (page === 'viewer')    refreshViewerPage();
   refreshIcons();
 }
 
 // ─── PREVIEW ──────────────────────────────────────────────────────────────
-let PREVIEW_MODE = 'template';
 function setPreviewMode(mode, btn) {
-  PREVIEW_MODE = mode;
+  STATE.previewMode = mode;
+  STATE._previewShowAll[mode] = false; // Reset when switching modes too
   document.querySelectorAll('.preview-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
-  renderPreview();
-}
-
-function renderPreview() {
-  const el = document.getElementById('previewArea');
-  if (PREVIEW_MODE === 'template') {
-    if (!STATE.templates.length) { el.innerHTML = '<div class="empty-state"><strong>No templates available</strong><p>Create a template to see your output schema.</p></div>'; return; }
-    const t = STATE.templates[0];
-    const sampleData = generateSampleRows(t.columns);
-    el.innerHTML = `
-      <div style="margin-bottom:20px">
-        <div class="preview-label-badge">Output Schema Preview</div>
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <h2 style="font-size:20px;font-weight:800">${esc(t.name)}</h2>
-          <div class="xlsx-stat-pill"><strong>${t.columns.length}</strong> Columns</div>
-        </div>
-      </div>
-      <div class="output-table-wrap" style="max-height:320px">
-        <table id="outputTable">
-          <thead><tr>${t.columns.map(c => `<th>${esc(c.name)}</th>`).join('')}</tr></thead>
-          <tbody>${sampleData.map(row=>`<tr>${row.map(cell=>`<td>${esc(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
-        </table>
-      </div>
-      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
-        <div class="xlsx-stat-pill">Dedup: ${t.dedupCols.length ? t.dedupCols.join(', ') : 'None'}</div>
-      </div>
-    `;
-  } else if (PREVIEW_MODE === 'group') {
-    if (!STATE.groups.length) { el.innerHTML = '<div class="empty-state"><strong>No source groups available</strong></div>'; return; }
-    el.innerHTML = `<div class="preview-label-badge">Source Group Configuration</div><div style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:12px;display:grid">${STATE.groups.map(g=>`<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><strong style="font-size:15px">${esc(g.name)}</strong><span class="xlsx-stat-pill">${esc(g.templateName||'No Template')}</span></div>${g.sources.map(s=>`<div style="font-size:12px;display:flex;align-items:center;gap:8px;color:var(--text2);padding:6px 10px;background:var(--surface2);border-radius:6px;margin-bottom:5px;border:1px solid var(--border)"><i data-lucide="file-text" class="icon"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.path)}</span></div>`).join('')}</div>`).join('')}</div>`;
-    refreshIcons();
-  } else if (PREVIEW_MODE === 'campaign') {
-    if (!STATE.campaigns.length) { el.innerHTML = '<div class="empty-state"><strong>No campaigns available</strong></div>'; return; }
-    el.innerHTML = `<div class="preview-label-badge">Campaign Configurations</div><div style="display:flex;flex-direction:column;gap:14px;margin-top:12px">${STATE.campaigns.map(c=>`<div class="card" style="border-left:4px solid var(--blue)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:17px;font-weight:800">${esc(c.name)}</div><div class="xlsx-stat-pill">${c.groups.length} Tabs</div></div><div style="font-size:12px;color:var(--text3);margin-bottom:12px">Multi-tab Excel export</div><div style="display:flex;flex-wrap:wrap;gap:8px">${c.groups.map(gn=>`<div class="xlsx-stat-pill"><i data-lucide="package" class="icon" style="margin-right:4px"></i>${esc(gn)}</div>`).join('')}</div></div>`).join('')}`;
-    refreshIcons();
-  }
+  refreshPreview();
 }
 
 function generateSampleRows(columns) {
@@ -1370,6 +1375,52 @@ function showFolderPath() {
   popup.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--text2)"><i data-lucide="folder" class="icon" style="vertical-align:text-bottom;margin-right:4px"></i> ${esc(folderName)}</div><button onclick="document.getElementById('folderPathPopup').remove()" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--text3)">✕</button></div><div onclick="copyToClipboard('${cdCmd.replace(/'/g,"\\'")}');toast('Copied!','success');document.getElementById('folderPathPopup').remove()" style="background:#0f1b3d;border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:11px;color:#7ec8a0;cursor:pointer">${esc(cdCmd)}</div><div style="font-size:10px;color:var(--text3);margin-top:6px;text-align:center">Click to copy</div>`;
   document.body.appendChild(popup);
   setTimeout(()=>{const p=document.getElementById('folderPathPopup');if(p)p.remove();},12000);
+}
+
+function toggleTreeNode(el, nodeId) {
+  const node = el.closest('.tree-node');
+  if(!node) return;
+  const isOpen = node.classList.toggle('open');
+  if(isOpen) STATE._openNodes.add(nodeId);
+  else STATE._openNodes.delete(nodeId);
+  refreshIcons();
+}
+
+async function downloadInputFile(folder, fname) {
+  if(!STATE.folderHandle) return;
+  try {
+    const inputDir = await STATE.folderHandle.getDirectoryHandle('input');
+    const targetDir = folder === '_root' ? inputDir : await inputDir.getDirectoryHandle(folder);
+    const fileHandle = await targetDir.getFileHandle(fname);
+    const file = await fileHandle.getFile();
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Download started');
+  } catch(e) {
+    toast('Download failed: ' + e.message, 'error');
+  }
+}
+
+async function downloadOutputFile(fname) {
+  if(!STATE.folderHandle) return;
+  try {
+    const outDir = await STATE.folderHandle.getDirectoryHandle('output');
+    const fileHandle = await outDir.getFileHandle(fname);
+    const file = await fileHandle.getFile();
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Download started');
+  } catch(e) {
+    toast('Download failed: ' + e.message, 'error');
+  }
 }
 
 // ─── HOME ──────────────────────────────────────────────────────────────────
@@ -1954,7 +2005,11 @@ async function deleteInputFile(folder,fname){
         await subDir.removeEntry(fname);
       }
       toast('File deleted','success');
-      refreshPreview();
+      if(document.getElementById('page-input').classList.contains('active')) {
+        refreshInputPage();
+      } else {
+        refreshPreview();
+      }
     }catch(e){toast('Delete failed: '+e.message,'error');}
   });
 }
@@ -1981,7 +2036,11 @@ async function deleteAllInFolder(folder) {
       }
       
       toast(`Deleted ${entries.length} file(s) from ${folderName}`, 'success');
-      refreshPreview();
+      if(document.getElementById('page-input').classList.contains('active')) {
+        refreshInputPage();
+      } else {
+        refreshPreview();
+      }
     } catch (e) {
       toast('Delete all failed: ' + e.message, 'error');
     }
@@ -2049,7 +2108,11 @@ async function handleInputFolderDrop(event, folder) {
 
     if (uploaded > 0) {
       toast(`Uploaded ${uploaded} file(s) to ${folder === '_root' ? 'input/' : folder}`, 'success');
-      refreshPreview();
+      if(document.getElementById('page-input').classList.contains('active')) {
+        refreshInputPage();
+      } else {
+        refreshPreview();
+      }
     }
     if (skipped.length > 0) {
       const names = skipped.slice(0, 2).join(', ');
@@ -2413,14 +2476,25 @@ function renderHierarchicalFileSelector(files, query=''){
 
   const renderFileRow = (f) => `
     <div class="tree-file-row ${STATE._activeOutputName===f.name?'active':''}" onclick="loadSelectedOutput('${escAttr(f.name)}')">
-      <div class="tree-file-info"><i data-lucide="file-spreadsheet" class="icon" style="opacity:.6"></i><div class="tree-file-name" title="${esc(f.name)}">${esc(f.name)}</div></div>
-      <div class="tree-file-actions"><button class="btn-icon danger" onclick="event.stopPropagation();deleteOutputFile('${escAttr(f.name)}')" title="Delete"><i data-lucide="trash-2" class="icon"></i></button></div>
+      <div class="tree-file-info"><i data-lucide="file-spreadsheet" class="icon" style="opacity:.6"></i>
+        <div style="flex:1;min-width:0">
+          <div class="tree-file-name" title="${esc(f.name)}">${esc(f.name)}</div>
+          <div style="font-size:9px;color:var(--text3);opacity:.7;margin-top:1px">${formatDateTime(f.lastModified)} • ${formatFileSize(f.size)}</div>
+        </div>
+      </div>
+      <div class="tree-file-actions">
+        <button class="btn-icon" onclick="event.stopPropagation();downloadOutputFile('${escAttr(f.name)}')" title="Download"><i data-lucide="download" class="icon"></i></button>
+        <button class="btn-icon danger" onclick="event.stopPropagation();deleteOutputFile('${escAttr(f.name)}')" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
+      </div>
     </div>
   `;
 
-  const renderGroupNode = (name, files, icon='folder') => `
-    <div class="tree-node">
-      <div class="tree-node-hdr" onclick="this.parentElement.classList.toggle('open');refreshIcons();">
+  const renderGroupNode = (name, files, icon='folder', idPrefix='') => {
+    const nodeId = idPrefix + name;
+    const isOpen = STATE._openNodes.has(nodeId);
+    return `
+    <div class="tree-node ${isOpen?'open':''}">
+      <div class="tree-node-hdr" onclick="toggleTreeNode(this,'${escAttr(nodeId)}')">
         <span class="tree-node-icon"><i data-lucide="chevron-right" class="icon"></i></span>
         <i data-lucide="${icon}" class="icon" style="width:12px;height:12px;color:var(--blue)"></i>
         <span style="flex:1;font-size:12px">${esc(name)}</span>
@@ -2430,20 +2504,20 @@ function renderHierarchicalFileSelector(files, query=''){
         ${files.map(f=>renderFileRow(f)).join('')}
       </div>
     </div>
-  `;
+  `;};
 
   let html = '<div class="output-tree">';
   if(Object.keys(tree['Templates']).length > 0) {
     html += `<div class="tree-category-label">Templates</div>`;
-    Object.keys(tree['Templates']).sort().forEach(name => html += renderGroupNode(name, tree['Templates'][name], 'layout'));
+    Object.keys(tree['Templates']).sort().forEach(name => html += renderGroupNode(name, tree['Templates'][name], 'layout', 'tpl-'));
   }
   if(Object.keys(tree['Campaigns']).length > 0) {
     html += `<div class="tree-category-label">Campaigns</div>`;
-    Object.keys(tree['Campaigns']).sort().forEach(name => html += renderGroupNode(name, tree['Campaigns'][name], 'target'));
+    Object.keys(tree['Campaigns']).sort().forEach(name => html += renderGroupNode(name, tree['Campaigns'][name], 'target', 'cmp-'));
   }
   if(tree['Other'].length > 0) {
     html += `<div class="tree-category-label">Misc</div>`;
-    html += renderGroupNode('Uncategorized', tree['Other'], 'file-question');
+    html += renderGroupNode('Uncategorized', tree['Other'], 'file-question', 'misc-');
   }
   html += '</div>';
   el.innerHTML = html;
@@ -2634,6 +2708,10 @@ function renderWorkbook(wb,fileName){
 function switchSheet(btn,idx){
   if(btn){document.querySelectorAll('.sheet-tab').forEach(t=>t.classList.remove('active'));btn.classList.add('active');}
   const wb=STATE._currentWorkbook;const sheetName=wb.SheetNames[idx];const ws=wb.Sheets[sheetName];
+  
+  // Resolve active template for formatting
+  const activeTpl = STATE.templates.find(t => t.name === STATE._activeTemplateName);
+  
   const content=document.getElementById('outputViewerContent');
   content.innerHTML=`
     <div>
@@ -2646,13 +2724,13 @@ function switchSheet(btn,idx){
         </div>
         <div style="display:flex;gap:8px">
           <button class="expand-btn" onclick="toggleExpandTable()"><i data-lucide="maximize" id="expandIcon" class="icon"></i> <span id="expandText">Expand</span></button>
-          <button class="btn btn-ghost btn-sm" onclick="copyTableToClipboard()"><i data-lucide="copy" class="icon"></i> Copy</button>
+          <button class="btn btn-ghost btn-sm" onclick="copyTableToClipboard('viewerTable')"><i data-lucide="copy" class="icon"></i> Copy</button>
           <button onclick="confirmSaveBaseline()" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:#10b981;color:white;border:none;border-radius:8px;font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;"><i data-lucide="save" class="icon"></i>Save Baseline</button>
         </div>
       </div>
 
       <div class="output-table-wrap" id="outputTableWrap">
-        <table id="outputTable"><thead><tr id="tableHead"></tr></thead><tbody id="tableBody"></tbody></table>
+        <table id="viewerTable"><thead><tr id="tableHead"></tr></thead><tbody id="tableBody"></tbody></table>
         <div id="loadMoreContainer" style="padding:20px;text-align:center;display:none"><button class="btn btn-ghost" onclick="renderMoreRows()">Load More Rows</button></div>
       </div>
       <button class="close-expand" onclick="toggleExpandTable()"><i data-lucide="x" class="icon"></i></button>
@@ -2662,9 +2740,16 @@ function switchSheet(btn,idx){
   const json=XLSX.utils.sheet_to_json(ws,{header:1});
   const headers=json[0]||[];const rows=json.slice(1);
   STATE._currentRows=rows;STATE._currentHeaders=headers;STATE._renderedRowCount=0;
+  
   const countBadge = document.getElementById('activeSheetRowCount');
   if(countBadge) countBadge.textContent = `${rows.length} rows`;
-  document.getElementById('tableHead').innerHTML=headers.map(h=>`<th>${esc(String(h))}</th>`).join('');
+
+  document.getElementById('tableHead').innerHTML=headers.map(h=>{
+    const activeTpl = STATE.templates.find(t => t.name === STATE._activeTemplateName);
+    const tplCol = activeTpl?.columns?.find(c => c.name === h);
+    const alignClass = getAlignmentClass(tplCol ? tplCol.fmt : '');
+    return `<th class="${alignClass}">${esc(String(h))}</th>`;
+  }).join('');
 
   renderMoreRows();
 }
@@ -2682,11 +2767,59 @@ function updateToggleIcon() {
   refreshIcons();
 }
 function renderMoreRows(){
-  const body=document.getElementById('tableBody');const rows=STATE._currentRows||[];
-  const start=STATE._renderedRowCount;const end=Math.min(start+100,rows.length);const chunk=rows.slice(start,end);
-  body.insertAdjacentHTML('beforeend',chunk.map(row=>`<tr onclick="this.querySelectorAll('td').forEach(t=>t.style.whiteSpace=t.style.whiteSpace==='normal'?'nowrap':'normal')">${STATE._currentHeaders.map((_,i)=>`<td>${esc(String(row[i]!==undefined?row[i]:''))}</td>`).join('')}</tr>`).join(''));
-  STATE._renderedRowCount=end;
-  const lm=document.getElementById('loadMoreContainer');if(lm)lm.style.display=end<rows.length?'block':'none';
+  const body = document.getElementById('tableBody');
+  const rows = STATE._currentRows || [];
+  const start = STATE._renderedRowCount;
+  const end = Math.min(start + 100, rows.length);
+  const chunk = rows.slice(start, end);
+  
+  const headers = STATE._currentHeaders || [];
+  
+  body.insertAdjacentHTML('beforeend', chunk.map(row => {
+    const cellsHtml = headers.map((h, i) => {
+      const rawVal = row[i] !== undefined ? row[i] : '';
+      const formatted = formatTableValue(rawVal, String(h));
+      const activeTpl = STATE.templates.find(t => t.name === STATE._activeTemplateName);
+      const tplCol = activeTpl?.columns?.find(c => c.name === h);
+      const fmt = tplCol ? tplCol.fmt : '';
+      const alignClass = getAlignmentClass(fmt);
+      const isDate = String(h).toLowerCase().includes('time') || String(h).toLowerCase().includes('date');
+      return `<td class="${alignClass} ${isDate ? 'date-col' : ''}">${esc(formatted)}</td>`;
+    }).join('');
+    return `<tr onclick="this.querySelectorAll('td').forEach(t=>t.style.whiteSpace=t.style.whiteSpace==='normal'?'nowrap':'normal')">${cellsHtml}</tr>`;
+  }).join(''));
+  
+  STATE._renderedRowCount = end;
+  const lm = document.getElementById('loadMoreContainer');
+  if(lm) lm.style.display = end < rows.length ? 'block' : 'none';
+}
+
+function formatTableValue(val, colName) {
+  if (val === null || val === undefined) return '';
+  const s = String(val);
+  const cn = colName.toLowerCase();
+  
+  // Format Date/Time columns
+  if (cn.includes('time') || cn.includes('date')) {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      // Return e.g. "Feb 26, 2026 10:29 PM"
+      return d.toLocaleString('en-US', { 
+        month: 'short', day: 'numeric', year: 'numeric', 
+        hour: '2-digit', minute: '2-digit', hour12: true 
+      });
+    }
+  }
+  return s;
+}
+
+function getAlignmentClass(fmt) {
+  if (!fmt) return 'align-center'; // Default
+  const codes = fmt.trim().split(/\s+/);
+  if (codes.includes('l')) return 'align-left';
+  if (codes.includes('r')) return 'align-right';
+  if (codes.includes('z')) return 'align-center';
+  return 'align-center'; // Explicit default
 }
 
 function toggleViewerSidebar(){
@@ -2709,10 +2842,16 @@ function toggleExpandTable(){
   refreshIcons();
 }
 
-function copyTableToClipboard(){
-  const table=document.getElementById('outputTable');if(!table)return;
-  let text='';for(let row of table.rows){let cells=[...row.cells].map(c=>c.innerText);text+=cells.join('\t')+'\n';}
-  copyToClipboard(text);toast('Copied as Tab-Separated Values!','success');
+function copyTableToClipboard(tableId = 'viewerTable') {
+  const table = document.getElementById(tableId);
+  if (!table) { toast('Table not found','error'); return; }
+  let text = '';
+  for (let row of table.rows) {
+    let cells = [...row.cells].map(c => c.innerText);
+    text += cells.join('\t') + '\n';
+  }
+  copyToClipboard(text);
+  toast('Copied to clipboard!', 'success');
 }
 
 // ─── RUN PAGE ──────────────────────────────────────────────────────────────
@@ -3014,6 +3153,92 @@ function setPreviewMode(mode, btn) {
   refreshPreview();
 }
 
+async function refreshInputPage() {
+  const query = document.getElementById('inputSearch')?.value?.toLowerCase() || '';
+  const area = document.getElementById('inputArea');
+  if(!area) return;
+
+  if(!STATE.folderHandle) {
+    area.innerHTML = '<div class="empty-state"><div class="es-icon"><i data-lucide="folder"></i></div><strong>No folder linked</strong>Link a project folder to view input files.</div>';
+    refreshIcons();
+    return;
+  }
+
+  area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)"><i data-lucide="loader-2" class="icon spin"></i> Scanning input folder...</div>';
+  refreshIcons();
+
+  const inputData = await scanInputFiles();
+  const folders = Object.keys(inputData).sort((a,b) => a==='_root'?-1:b==='_root'?1:a.localeCompare(b));
+  let totalFiles = 0;
+  folders.forEach(f => totalFiles += inputData[f].length);
+
+  if(totalFiles === 0) {
+    area.innerHTML = '<div class="empty-state"><div class="es-icon"><i data-lucide="folder-open"></i></div><strong>No input files</strong>Place CSV, XLSX, or other data files in your input/ folder.</div>';
+    refreshIcons();
+    return;
+  }
+
+  let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div><span class="preview-label-badge" style="background:var(--green-soft);color:var(--green)">Input Storage</span>
+    <span style="font-size:12px;color:var(--text3);margin-left:8px">${totalFiles} file(s) available</span></div>
+  </div>`;
+  
+  html += '<div class="output-tree">';
+  folders.forEach(folder => {
+    let files = inputData[folder];
+    if(!files.length) return;
+    if(query) files = files.filter(f => f.name.toLowerCase().includes(query));
+    if(!files.length) return;
+
+    const folderLabel = folder === '_root' ? 'input/' : folder;
+    const folderIcon = folder === '_root' ? 'folder' : 'folder-open';
+    const isOpen = STATE._openNodes.has('in-'+folder);
+    html += `<div class="tree-node ${isOpen?'open':''}" data-drop-folder="${escAttr(folder)}" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleInputFolderDrop(event,'${escAttr(folder)}')">
+      <div class="tree-node-hdr" onclick="toggleTreeNode(this,'in-${escAttr(folder)}')">
+        <span class="tree-node-icon"><i data-lucide="chevron-right" class="icon"></i></span>
+        <i data-lucide="${folderIcon}" class="icon" style="width:14px;height:14px;color:var(--blue)"></i>
+        <span style="flex:1;font-size:13px;font-weight:600">${esc(folderLabel)}</span>
+        <div class="folder-actions-bar" onclick="event.stopPropagation()">
+          <span class="tree-file-meta">${files.length}</span>
+          <button class="btn-icon danger" onclick="deleteAllInFolder('${escAttr(folder)}')" title="Delete all files in ${esc(folderLabel)}"><i data-lucide="trash" class="icon"></i></button>
+        </div>
+      </div>
+      <div class="tree-children">`;
+    files.forEach(f => {
+      const basename = getBaseName(f.name);
+      const truncName = basename.length > 45 ? basename.substring(0, 42) + '...' : basename;
+      html += `<div class="tree-file-row" onclick="this.classList.toggle('active')">
+        <div class="tree-file-info">
+          <i data-lucide="file-spreadsheet" class="icon" style="opacity:.6"></i>
+          <div style="flex:1;min-width:0">
+            <div class="tree-file-name" title="${esc(f.name)}">${esc(truncName)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="text-align:right;line-height:1.2">
+            <div style="font-size:10px;color:var(--text3)">${formatFileSize(f.size)}</div>
+            <div style="font-size:9px;color:var(--text3);opacity:.7">${formatDateTime(f.lastModified)}</div>
+          </div>
+          <div class="tree-file-actions">
+            <button class="btn-icon" onclick="event.stopPropagation();downloadInputFile('${escAttr(folder)}','${escAttr(f.name)}')" title="Download"><i data-lucide="download" class="icon"></i></button>
+            <button class="btn-icon danger" onclick="event.stopPropagation();deleteInputFile('${escAttr(folder)}','${escAttr(f.name)}')" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
+          </div>
+        </div>
+      </div>`;
+    });
+    html += '</div></div>';
+  });
+
+  html += `<div class="input-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleInputFolderDrop(event,'_root')">
+    <div class="drop-icon"><i data-lucide="upload" class="icon"></i></div>
+    Drag & drop files here to add to input/ root
+  </div>`;
+  html += '</div>';
+
+  area.innerHTML = html;
+  refreshIcons();
+}
+
 async function refreshPreview() {
   const mode = STATE.previewMode || 'template';
   const query = document.getElementById('previewSearch')?.value?.toLowerCase() || '';
@@ -3021,89 +3246,46 @@ async function refreshPreview() {
   if(!area) return;
 
   let html = '';
-  if(mode === 'input') {
-    // Input tab — show all files in input/ folder as tree
-    if(!STATE.folderHandle) {
-      html = '<div class="empty-state"><div class="es-icon"><i data-lucide="folder"></i></div><strong>No folder linked</strong>Link a project folder to view input files.</div>';
-    } else {
-      area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)"><i data-lucide="loader-2" class="icon spin"></i> Scanning input folder...</div>';
-      refreshIcons();
-      const inputData = await scanInputFiles();
-      const folders = Object.keys(inputData).sort((a,b) => a==='_root'?-1:b==='_root'?1:a.localeCompare(b));
-      let totalFiles = 0;
-      folders.forEach(f => totalFiles += inputData[f].length);
-      if(totalFiles === 0) {
-        html = '<div class="empty-state"><div class="es-icon"><i data-lucide="folder-open"></i></div><strong>No input files</strong>Place CSV, XLSX, or other data files in your input/ folder.</div>';
-      } else {
-        html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div><span class="preview-label-badge" style="background:var(--green-soft);color:var(--green)">Input Files</span>
-          <span style="font-size:12px;color:var(--text3);margin-left:8px">${totalFiles} file(s)</span></div>
-          <button class="btn btn-ghost btn-sm" onclick="refreshPreview()"><i data-lucide="refresh-cw" class="icon"></i> Refresh</button>
-        </div>`;
-        html += '<div class="output-tree">';
-        folders.forEach(folder => {
-          let files = inputData[folder];
-          if(!files.length) return;
-          if(query) files = files.filter(f => f.name.toLowerCase().includes(query));
-          if(!files.length) return;
-          const folderLabel = folder === '_root' ? 'input/' : folder;
-          const folderIcon = folder === '_root' ? 'folder' : 'folder-open';
-          html += `<div class="tree-node open" data-drop-folder="${escAttr(folder)}" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleInputFolderDrop(event,'${escAttr(folder)}')">
-            <div class="tree-node-hdr" onclick="this.parentElement.classList.toggle('open');refreshIcons();">
-              <span class="tree-node-icon"><i data-lucide="chevron-right" class="icon"></i></span>
-              <i data-lucide="${folderIcon}" class="icon" style="width:14px;height:14px;color:var(--blue)"></i>
-              <span style="flex:1;font-size:13px;font-weight:600">${esc(folderLabel)}</span>
-              <div class="folder-actions-bar" onclick="event.stopPropagation()">
-                <span class="tree-file-meta">${files.length}</span>
-                <button class="btn-icon danger" onclick="deleteAllInFolder('${escAttr(folder)}')" title="Delete all files in ${esc(folderLabel)}"><i data-lucide="trash" class="icon"></i></button>
-              </div>
-            </div>
-            <div class="tree-children">`;
-          files.forEach(f => {
-            const basename = getBaseName(f.name);
-            const truncName = basename.length > 45 ? basename.substring(0, 42) + '...' : basename;
-            html += `<div class="tree-file-row" onclick="this.classList.toggle('active')">
-              <div class="tree-file-info">
-                <i data-lucide="file-spreadsheet" class="icon" style="opacity:.6"></i>
-                <div style="flex:1;min-width:0">
-                  <div class="tree-file-name" title="${esc(f.name)}">${esc(truncName)}</div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px">
-                <span style="font-size:10px;color:var(--text3)">${formatFileSize(f.size)}</span>
-                <div class="tree-file-actions">
-                  <button class="btn-icon danger" onclick="event.stopPropagation();deleteInputFile('${escAttr(folder)}','${escAttr(f.name)}')" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
-                </div>
-              </div>
-            </div>`;
-          });
-          html += '</div></div>';
-        });
-        // Global drop zone at the bottom
-        html += `<div class="input-drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');handleInputFolderDrop(event,'_root')">
-          <div class="drop-icon"><i data-lucide="upload" class="icon"></i></div>
-          Drag & drop files here to add to input/
-        </div>`;
-        html += '</div>';
-      }
-    }
-  } else if(mode === 'template') {
+  const showAll = STATE._previewShowAll[mode] || false;
+
+  if(mode === 'template') {
     const items = query ? STATE.templates.filter(t => t.name.toLowerCase().includes(query)) : STATE.templates;
+    const limit = (query || showAll) ? items.length : 2;
+    const displayed = items.slice(0, limit);
+
     if(!items.length) { html = '<div class="empty-state">No templates found</div>'; }
     else {
-      html = items.map(t => `
+      html = displayed.map((t, i) => {
+        const tableId = `previewTable-tpl-${i}`;
+        return `
         <div class="card" style="margin-bottom:20px">
           <div class="preview-label-badge">Output Schema Preview</div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
             <h2 style="font-size:18px;font-weight:700">${esc(t.name)}</h2>
-            <div class="xlsx-stat-pill">${t.columns.length} Columns</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-ghost btn-sm" onclick="copyTableToClipboard('${tableId}')"><i data-lucide="copy" class="icon"></i> Copy</button>
+              <div class="xlsx-stat-pill">${t.columns.length} Columns</div>
+            </div>
           </div>
           <div class="output-table-wrap" style="max-height:300px">
-            <table id="outputTable">
-              <thead><tr>${t.columns.map(c => `<th>${esc(c.name)}</th>`).join('')}</tr></thead>
+            <table id="${tableId}">
+              <thead><tr>${t.columns.map(c => {
+                const alignClass = getAlignmentClass(c.fmt);
+                return `<th class="${alignClass}">${esc(c.name)}</th>`;
+              }).join('')}</tr></thead>
               <tbody>
-                <tr>${t.columns.map(c => `<td>${esc(c.name)}_1</td>`).join('')}</tr>
-                <tr>${t.columns.map(c => `<td><span style="opacity:0.5">${esc(c.name)}_2</span></td>`).join('')}</tr>
+                <tr>${t.columns.map(c => {
+                  const val = formatTableValue(`${esc(c.name)}_1`, c.name);
+                  const alignClass = getAlignmentClass(c.fmt);
+                  const isDate = c.name.toLowerCase().includes('time') || c.name.toLowerCase().includes('date');
+                  return `<td class="${alignClass} ${isDate ? 'date-col' : ''}">${esc(val)}</td>`;
+                }).join('')}</tr>
+                <tr>${t.columns.map(c => {
+                  const val = formatTableValue(`${esc(c.name)}_2`, c.name);
+                  const alignClass = getAlignmentClass(c.fmt);
+                  const isDate = c.name.toLowerCase().includes('time') || c.name.toLowerCase().includes('date');
+                  return `<td class="${alignClass} ${isDate ? 'date-col' : ''}"><span style="opacity:0.5">${esc(val)}</span></td>`;
+                }).join('')}</tr>
               </tbody>
             </table>
           </div>
@@ -3112,13 +3294,19 @@ async function refreshPreview() {
             ${t.sortCol ? `<span class="xlsx-stat-pill" style="background:var(--blue-soft);color:var(--blue)">Sort: ${t.sortCol} (${t.sortOrder==='desc'?'Z-A':'A-Z'})</span>` : ''}
           </div>
         </div>
-      `).join('');
+      `;}).join('');
+      if(items.length > limit) {
+        html += `<div style="text-align:center;margin:16px 0"><button class="btn btn-ghost" onclick="STATE._previewShowAll.template=true;refreshPreview()">Show all ${items.length} templates →</button></div>`;
+      }
     }
   } else if(mode === 'group') {
     const items = query ? STATE.groups.filter(g => g.name.toLowerCase().includes(query)) : STATE.groups;
+    const limit = (query || showAll) ? items.length : 2;
+    const displayed = items.slice(0, limit);
+
     if(!items.length) { html = '<div class="empty-state">No source groups found</div>'; }
     else {
-      html = items.map(g => `
+      html = displayed.map(g => `
         <div class="card" style="margin-bottom:20px">
           <div class="preview-label-badge" style="background:var(--green-soft);color:var(--green)">Source Group Preview</div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -3140,12 +3328,18 @@ async function refreshPreview() {
           </div>
         </div>
       `).join('');
+      if(items.length > limit) {
+        html += `<div style="text-align:center;margin:16px 0"><button class="btn btn-ghost" onclick="STATE._previewShowAll.group=true;refreshPreview()">Show all ${items.length} groups →</button></div>`;
+      }
     }
   } else if(mode === 'campaign') {
     const items = query ? STATE.campaigns.filter(c => c.name.toLowerCase().includes(query)) : STATE.campaigns;
+    const limit = (query || showAll) ? items.length : 2;
+    const displayed = items.slice(0, limit);
+
     if(!items.length) { html = '<div class="empty-state">No campaigns found</div>'; }
     else {
-      html = items.map(c => `
+      html = displayed.map(c => `
         <div class="card" style="margin-bottom:20px">
           <div class="preview-label-badge" style="background:var(--purple-soft);color:var(--purple)">Campaign Preview</div>
           <h2 style="font-size:18px;font-weight:700;margin-bottom:12px">${esc(c.name)}</h2>
@@ -3162,6 +3356,9 @@ async function refreshPreview() {
           </div>
         </div>
       `).join('');
+      if(items.length > limit) {
+        html += `<div style="text-align:center;margin:16px 0"><button class="btn btn-ghost" onclick="STATE._previewShowAll.campaign=true;refreshPreview()">Show all ${items.length} campaigns →</button></div>`;
+      }
     }
   }
 
@@ -3187,6 +3384,15 @@ function escAttr(str){return String(str||'').replace(/'/g,"\\'").replace(/\\/g,'
 function copyToClipboard(text){
   const fallback=()=>{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);};
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).catch(fallback);}else{fallback();}
+}
+
+function formatDateTime(ms) {
+  if(!ms) return '';
+  const d = new Date(ms);
+  const now = new Date();
+  const options = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
+  if(d.getFullYear() !== now.getFullYear()) options.year = 'numeric';
+  return d.toLocaleString('en-US', options);
 }
 
 // ─── INIT ───────────────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ os.makedirs(SOURCE_GRP_DIR, exist_ok=True)
 os.makedirs(BASELINE_DIR, exist_ok=True)
 
 FORMAT_CODES = {"0","a","b","c","d","e","f","g","h","i","j","u","x","k","q"}
-ALIGN_CODES = {"l": "left", "r": "right"}
+ALIGN_CODES = {"l": "left", "r": "right", "z": "center"}
 ALL_CODES = FORMAT_CODES | set(ALIGN_CODES.keys())
 
 def find_template(tname):
@@ -144,7 +144,7 @@ def process_df(df_list, template, output_name, quick_mode, template_unique_cols,
         col_name = rule[0]
         tokens = list(rule[1:])
         col_dict = {}
-        align = "center"
+        align = "center" # Default
 
         if tokens and isinstance(tokens[-1], dict):
             col_dict = tokens[-1]

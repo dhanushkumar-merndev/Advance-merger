@@ -14,7 +14,8 @@
       "Phone",
       "phone_number",
       "i",
-      "d"
+      "d",
+      "z"
     ],
     [
       "Position",
@@ -25,7 +26,8 @@
     ],
     [
       "Email",
-      "email"
+      "email",
+      "l"
     ]
   ],
   "unique_columns": [
@@ -34,7 +36,6 @@
   "sort_column": "Created Time",
   "sort_order": "desc",
   "google_links": [
-    "https://docs.google.com/spreadsheets/d/1D3_w5UCDlXIMIBeVwjOUjxFm7Dka_k-lJnJ68GdqTJU/edit?gid=0#gid=0",
     "https://docs.google.com/spreadsheets/d/1D3_w5UCDlXIMIBeVwjOUjxFm7Dka_k-lJnJ68GdqTJU/edit?usp=sharing"
   ]
 }
