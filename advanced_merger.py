@@ -2,62 +2,63 @@ import os
 import pandas as pd
 import json
 import re
+import sys
+import shutil
 from datetime import datetime
-from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font
 
-# ------------------ PATHS ------------------
 INPUT_DIR = "input"
 OUTPUT_DIR = "output"
-DUPLICATE_DIR = os.path.join(OUTPUT_DIR, "Duplicated")
 TEMPLATE_DIR = "templates"
+CAMP_DIR = "campaigns"
+SOURCE_GRP_DIR = "source_groups"
+BASELINE_DIR = os.path.join(TEMPLATE_DIR, "baselines")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(DUPLICATE_DIR, exist_ok=True)
+os.makedirs(os.path.join(OUTPUT_DIR, "Duplicated"), exist_ok=True)
 os.makedirs(TEMPLATE_DIR, exist_ok=True)
+os.makedirs(CAMP_DIR, exist_ok=True)
+os.makedirs(SOURCE_GRP_DIR, exist_ok=True)
+os.makedirs(BASELINE_DIR, exist_ok=True)
 
-# ---------------- FORMAT CODES ----------------
-FORMAT_CODES = {
-    "0": "BLANK/EMPTY",
-    "a": "DATE_DD-MM-YYYY",
-    "b": "TIME_HH:MM",
-    "c": "TIME_HH:MM:SS",
-    "d": "LAST_10_DIGITS",
-    "e": "ADD_+91",
-    "f": "UPPER",
-    "g": "LOWER",
-    "h": "TITLE",
-    "i": "INTEGER",
-    "j": "TRIM_DASH",
-    "u": "TRIM_UNDERSCORE",
-    "x": "TRIM_DOT",
-    "k": "DICT_LOOKUP",
-    "q": "DICT_LOOKUP_WITH_DEFAULT"
-}
-
+FORMAT_CODES = {"0","a","b","c","d","e","f","g","h","i","j","u","x","k","q"}
 ALIGN_CODES = {"l": "left", "r": "right"}
+ALL_CODES = FORMAT_CODES | set(ALIGN_CODES.keys())
 
-# ---------------- GOOGLE SHEETS URL CONVERTER ----------------
+def find_template(tname):
+    """Try multiple variations of template name to find the JSON file."""
+    candidates = [
+        tname,
+        tname.replace(" ", "_"),
+        tname.strip(),
+        tname.strip().replace(" ", "_"),
+    ]
+    for c in candidates:
+        p = os.path.join(TEMPLATE_DIR, c + ".json")
+        if os.path.exists(p):
+            return p
+    # fuzzy: compare lowercased filenames
+    available = [f for f in os.listdir(TEMPLATE_DIR) if f.endswith('.json')]
+    tname_lower = tname.lower().replace(" ", "").replace("_", "")
+    for f in available:
+        f_lower = f.replace(".json","").lower().replace(" ", "").replace("_", "")
+        if f_lower == tname_lower:
+            return os.path.join(TEMPLATE_DIR, f)
+    return None
+
 def convert_google_sheets_url(url):
-    """Convert Google Sheets sharing URL to export URL"""
     if "docs.google.com/spreadsheets" in url:
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
         if match:
             sheet_id = match.group(1)
             gid_match = re.search(r'[#&]gid=([0-9]+)', url)
-            if gid_match:
-                gid = gid_match.group(1)
-                return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-            else:
-                return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+            gid = gid_match.group(1) if gid_match else "0"
+            return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
     return url
 
-# ---------------- FILE READ ----------------
 def read_file(path):
     if "docs.google.com/spreadsheets" in path:
         path = convert_google_sheets_url(path)
-        print(f"  → Converted to export URL")
-    
     if path.startswith("http://") or path.startswith("https://"):
         df = pd.read_csv(path)
     elif path.endswith(".xlsx"):
@@ -66,8 +67,10 @@ def read_file(path):
         try:
             df = pd.read_csv(path, sep="\t", encoding="utf-16")
         except:
-            df = pd.read_csv(path, encoding="latin1")
-
+            try:
+                df = pd.read_csv(path, encoding="utf-8")
+            except:
+                df = pd.read_csv(path, encoding="latin1")
     df.columns = (
         df.columns.astype(str)
         .str.replace("\ufeff", "", regex=False)
@@ -76,613 +79,377 @@ def read_file(path):
     )
     return df
 
-# ---------------- FORMAT APPLY ----------------
-def apply_format(val, code):
+def apply_format_series(series, code):
     try:
         if code == "a":
-            return datetime.now().strftime("%d-%m-%Y")
+            return pd.Series([datetime.now().strftime("%d-%m-%Y")] * len(series), index=series.index)
         if code == "b":
-            return datetime.now().strftime("%H:%M")
+            return pd.Series([datetime.now().strftime("%H:%M")] * len(series), index=series.index)
         if code == "c":
-            return datetime.now().strftime("%H:%M:%S")
+            return pd.Series([datetime.now().strftime("%H:%M:%S")] * len(series), index=series.index)
         if code == "d":
-            digits = re.sub(r"\D", "", str(val))
-            return digits[-10:] if len(digits) >= 10 else ""
+            return series.astype(str).str.replace(r"\D", "", regex=True).str[-10:]
         if code == "e":
-            return "+91" + str(val)
+            return "+91" + series.astype(str)
         if code == "f":
-            return str(val).upper()
+            return series.astype(str).str.upper()
         if code == "g":
-            return str(val).lower()
+            return series.astype(str).str.lower()
         if code == "h":
-            return str(val).title()
+            return series.astype(str).str.title()
         if code == "i":
-            digits = re.sub(r"\D", "", str(val))
-            return int(digits) if digits else ""
+            return pd.to_numeric(series.astype(str).str.replace(r"\D", "", regex=True), errors='coerce').fillna(0).astype(int)
         if code == "j":
-            return str(val).replace("-", "")
+            return series.astype(str).str.replace("-", "", regex=False)
         if code == "u":
-            return str(val).replace("_", "")
+            return series.astype(str).str.replace("_", "", regex=False)
         if code == "x":
-            return str(val).replace(".", "")
+            return series.astype(str).str.replace(".", "", regex=False)
     except:
-        return ""
-    return val
+        return series
+    return series
 
-# ---------------- DICTIONARY INPUT ----------------
-def read_dictionary_inline():
-    print("\nEnter dictionary mapping (ENTER key to stop)")
-    dk = {}
-    while True:
-        key = input("Key: ").strip().lower()
-        if not key:
-            break
-        value = input(f"Value for '{key}': ").strip()
-        dk[key] = value
-    return dk
+def process_df(df_list, template, output_name, quick_mode, template_unique_cols, sort_col=None):
 
-def read_dictionary_with_default():
-    default_val = input("\nEnter default value (if no key matches): ").strip()
-    print("\nEnter dictionary mapping (ENTER key to stop)")
-    dk = {"__default__": default_val}
-    while True:
-        key = input("Key: ").strip().lower()
-        if not key:
-            break
-        value = input(f"Value for '{key}': ").strip()
-        dk[key] = value
-    return dk
 
-# ---------------- LOAD FILES FUNCTION ----------------
-def load_files():
-    """Load files based on user choice"""
-    dfs = []
-    file_names = []
-    print("\nSelect input source:")
-    print("1. Use input folder")
-    print("2. Use external Excel/CSV/Google Sheets file(s)")
+    merged = pd.concat(df_list, ignore_index=True)
+    output = {}
+    column_alignments = {}
 
-    src = input("Choose (1/2): ").strip()
+    for rule in template:
+        col_name = rule[0]
+        tokens = list(rule[1:])
+        col_dict = {}
+        align = "center"
 
-    if src == "2":
-        print("\nEnter file paths or Google Sheets URLs (press ENTER without typing to finish):")
-        print("Tip: For Google Sheets, paste the sharing link directly")
-        file_count = 1
-        while True:
-            path = input(f"File {file_count} path: ").strip()
-            if not path:
-                break
-            try:
-                df = read_file(path)
-                dfs.append(df)
-                # Generate file name
-                if "docs.google.com" in path:
-                    fname = f"GoogleSheet_{file_count}"
-                else:
-                    fname = os.path.basename(path)
-                file_names.append(fname)
-                print(f"✓ Loaded: {len(df)} rows, {len(df.columns)} columns")
-                file_count += 1
-            except Exception as e:
-                print(f"✗ Error loading file: {e}")
-                print("  Please check the URL/path and try again, or press ENTER to skip")
-    else:
-        files = [f for f in os.listdir(INPUT_DIR) if f.endswith((".csv", ".xlsx"))]
-        if not files:
-            print(f"\n✗ No CSV or Excel files found in '{INPUT_DIR}' folder!")
-            return [], []
-        for file in files:
-            df = read_file(os.path.join(INPUT_DIR, file))
-            dfs.append(df)
-            file_names.append(file)
-            print(f"✓ Loaded: {file} ({len(df)} rows, {len(df.columns)} columns)")
+        if tokens and isinstance(tokens[-1], dict):
+            col_dict = tokens[-1]
+            tokens = tokens[:-1]
 
-    return dfs, file_names
+        for t in tokens:
+            if t in ALIGN_CODES:
+                align = ALIGN_CODES[t]
 
-# ---------------- MENU ----------------
-print("\n" + "="*50)
-print("   ADVANCED DATA MERGER")
-print("="*50)
-print("\n1. Use existing template")
-print("2. Create new template")
-print("3. Exit")
+        if not tokens:
+            s = pd.Series([""] * len(merged), index=merged.index)
+            fmt_tokens = []
+        elif tokens[0] == "0":
+            s = pd.Series([""] * len(merged), index=merged.index)
+            fmt_tokens = tokens[1:]
+        elif tokens[0] in ALL_CODES:
+            s = pd.Series([""] * len(merged), index=merged.index)
+            fmt_tokens = tokens
+        elif tokens[0].startswith("["):
+            col_names = [cn.strip().lower() for cn in tokens[0].strip("[]").split(",")]
+            valid_cols = [cn for cn in col_names if cn in merged.columns]
+            if valid_cols:
+                s = merged[valid_cols].astype(str).apply(
+                    lambda x: " ".join(dict.fromkeys(v for v in x if v not in ("", "nan"))), axis=1
+                )
+            else:
+                s = pd.Series([""] * len(merged), index=merged.index)
+            fmt_tokens = tokens[1:]
+        else:
+            src_lower = tokens[0].lower()
+            s = merged[src_lower].fillna("") if src_lower in merged.columns else pd.Series([""] * len(merged), index=merged.index)
+            fmt_tokens = tokens[1:]
 
-choice = input("\nSelect option: ").strip()
-if choice == "3":
+        for t in fmt_tokens:
+            if t in ALIGN_CODES or t in ("k", "q"):
+                continue
+            s = apply_format_series(s, t)
+
+        if ("k" in fmt_tokens or "q" in fmt_tokens) and col_dict:
+            use_default = "q" in fmt_tokens
+            def lookup(val):
+                norm_val = re.sub(r"[\s_\-]", "", str(val).lower())
+                matches = [v for k, v in col_dict.items() if k != "__default__" and re.sub(r"[\s_\-]", "", str(k).lower()) in norm_val]
+                if matches:
+                    return ", ".join(dict.fromkeys(matches))
+                if use_default and "__default__" in col_dict:
+                    return col_dict["__default__"]
+                return "" if not use_default else val
+            s = s.map(lookup)
+
+        output[col_name] = s
+        column_alignments[col_name] = align
+
+    final_df = pd.DataFrame(output)
+    selected_unique_cols = [c for c in template_unique_cols if c in final_df.columns] if quick_mode else []
+    if selected_unique_cols:
+        final_df = final_df.drop_duplicates(subset=selected_unique_cols, keep="first")
+    
+    if sort_col and sort_col in final_df.columns:
+        final_df = final_df.sort_values(by=sort_col, ascending=True)
+        
+    return final_df, column_alignments
+
+
+
+def style_sheet(ws, aligns):
+    header_font = Font(bold=True)
+    for col in ws.columns:
+        name = col[0].value
+        h_align = aligns.get(name, "center")
+        for cell in col:
+            cell.alignment = Alignment(horizontal=h_align, vertical="center")
+            if cell.row == 1:
+                cell.font = header_font
+        ws.column_dimensions[col[0].column_letter].width = max(
+            len(str(c.value)) if c.value else 0 for c in col
+        ) + 4
+
+def run_campaign(config, output_name, incremental=False):
+    ts = datetime.now().strftime("%y%m%d_%H%M")
+    out_path = os.path.join(OUTPUT_DIR, f"{output_name}_{ts}.xlsx")
+    baseline_path = os.path.join(BASELINE_DIR, f"{output_name}.xlsx")
+
+    baseline_sheets = {}
+    if incremental and os.path.exists(baseline_path):
+        try:
+            baseline_sheets = pd.read_excel(baseline_path, sheet_name=None)
+            print(f"Baseline loaded  {baseline_path}")
+        except:
+            print("Baseline not readable, running full merge.")
+
+    writer = pd.ExcelWriter(out_path, engine='openpyxl')
+    sheets_added = 0
+    total_new = 0
+
+    for group in config.get("groups", []):
+        gname = group.get("name", "Sheet")
+        sources = group.get("sources", [])
+        tname = group.get("template", "")
+
+        # ── FUZZY TEMPLATE FINDER ──
+        tpl_path = find_template(tname)
+        if not tpl_path:
+            print(f"Template not found  '{tname}'")
+            print(f"  Available: {[f.replace('.json','') for f in os.listdir(TEMPLATE_DIR) if f.endswith('.json')]}")
+            continue
+
+        with open(tpl_path, encoding='utf-8') as f:
+            tdata = json.load(f)
+            template = tdata["columns"] if isinstance(tdata, dict) else tdata
+            u_cols = tdata.get("unique_columns", []) if isinstance(tdata, dict) else []
+            s_col = tdata.get("sort_column") if isinstance(tdata, dict) else None
+
+
+
+        print(f"Processing  {gname}...")
+        try:
+            group_dfs = [read_file(s) for s in sources if s]
+            if not group_dfs:
+                print(f"  No sources loaded for {gname}")
+                continue
+        except Exception as e:
+            print(f"  Source load failed: {e}")
+            continue
+
+        df, aligns = process_df(group_dfs, template, output_name, True, u_cols, sort_col=s_col)
+
+
+
+        # Incremental: remove rows already in baseline
+        if incremental and gname in baseline_sheets and u_cols:
+            b_df = baseline_sheets[gname]
+            b_df.columns = b_df.columns.astype(str).str.strip()
+            valid_u_cols = [c for c in u_cols if c in df.columns and c in b_df.columns]
+            if valid_u_cols:
+                df_key = df[valid_u_cols].astype(str).apply(lambda x: x.str.strip().str.lower())
+                b_key  = b_df[valid_u_cols].astype(str).apply(lambda x: x.str.strip().str.lower())
+                df_key_str = df_key.apply(lambda r: "|".join(r.values), axis=1)
+                b_key_str  = b_key.apply(lambda r: "|".join(r.values), axis=1)
+                df = df[~df_key_str.isin(set(b_key_str))]
+
+        row_count = len(df)
+        total_new += row_count
+        print(f"  {row_count} rows  ->  {gname}")
+
+        sheet_name = gname[:30]
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+        style_sheet(writer.sheets[sheet_name], aligns)
+        sheets_added += 1
+
+    # Only save if at least one sheet was written
+    if sheets_added == 0:
+        writer.close()
+        # Clean up empty file
+        try:
+            os.remove(out_path)
+        except:
+            pass
+        print("No sheets written. Check template names match your source groups.")
+        return None, baseline_path
+
+    writer.close()
+    print(f"Done  {out_path}  ({total_new} total rows)")
+    return out_path, baseline_path
+
+# ── CLI MODE ──────────────────────────────────────────────────────────────────
+if len(sys.argv) > 2:
+    mode = sys.argv[1]
+    config = json.loads(sys.argv[2])
+    output_name = config.get("output", "MERGED_OUTPUT")
+    incremental = config.get("incremental", False)
+
+    if mode == "4":
+        run_campaign({"groups": config.get("groups", [])}, output_name, incremental)
     exit()
 
-# ---------------- LOAD INPUT FILES ----------------
-dfs, file_names = load_files()
+# ── INTERACTIVE MODE ──────────────────────────────────────────────────────────
+print("\n=== DATA MERGER ===")
+print("1. Standard Merge")
+print("2. Campaign Mode")
+print("3. Create Template")
+print("4. Exit")
+choice = input("\nSelect option: ").strip()
+if choice == "4" or not choice:
+    exit()
+
+if choice == "2":
+    camps = sorted([f for f in os.listdir(CAMP_DIR) if f.endswith('.json')], key=str.lower)
+    if not camps:
+        print("No campaigns found.")
+        exit()
+    print("\nCAMPAIGNS:")
+    [print(f"{i+1}. {c.replace('.json','')}") for i, c in enumerate(camps)]
+    sel = int(input("Select: "))
+
+    with open(os.path.join(CAMP_DIR, camps[sel-1]), encoding='utf-8') as f:
+        config = json.load(f)
+
+    output_name = config.get("name", "CAMPAIGN_OUTPUT")
+
+    print("\nMode:")
+    print("1. Full merge  (all rows)")
+    print("2. Incremental  (only new rows vs baseline)")
+    inc_choice = input("Choose (1/2): ").strip()
+    incremental = (inc_choice == "2")
+
+    groups = []
+    for gname in config.get("groups", []):
+        g_path = os.path.join(SOURCE_GRP_DIR, gname + ".json")
+        if not os.path.exists(g_path):
+            g_path = os.path.join(SOURCE_GRP_DIR, gname.replace(" ", "_") + ".json")
+        if not os.path.exists(g_path):
+            print(f"Source group not found  {gname}")
+            continue
+        with open(g_path, encoding='utf-8') as f:
+            gdata = json.load(f)
+        groups.append({
+            "name": gname,
+            "sources": [s.get("path") for s in gdata.get("sources", [])],
+            "template": gdata.get("templateName", "")
+        })
+
+    out_path, baseline_path = run_campaign({"groups": groups}, output_name, incremental)
+
+    if out_path:
+        print("\nSave as baseline for future incremental runs? (y/n): ", end="")
+        if input().strip().lower() == "y":
+            shutil.copy2(out_path, baseline_path)
+            print(f"Baseline saved  {baseline_path}")
+    exit()
+
+dfs = []
+print("\nInput source:")
+print("1. input/ folder")
+print("2. External files/URLs")
+src = input("Choose (1/2): ").strip()
+if src == "2":
+    while True:
+        path = input(f"File {len(dfs)+1} (ENTER to finish): ").strip()
+        if not path:
+            break
+        try:
+            df = read_file(path)
+            dfs.append(df)
+            print(f"Loaded  {len(df)} rows")
+        except Exception as e:
+            print(f"Failed  {e}")
+else:
+    for f in sorted([f for f in os.listdir(INPUT_DIR) if f.endswith((".csv", ".xlsx"))]):
+        df = read_file(os.path.join(INPUT_DIR, f))
+        dfs.append(df)
+        print(f"Loaded  {f}")
 
 if not dfs:
-    print("\n✗ No files loaded. Exiting.")
+    print("No files loaded.")
     exit()
 
-# Build column index with both number and name
-column_index = {}  # number -> column_name
-column_list = []   # list of all unique columns
-file_columns = {}  # file_name -> list of (col_num, col_name)
-global_idx = 1
-
-for df, fname in zip(dfs, file_names):
-    file_columns[fname] = []
-    for col in df.columns:
-        column_index[global_idx] = col
-        # Only add to column_list if it's the first occurrence of this column name
-        if col not in column_list:
-            column_list.append(col)
-        file_columns[fname].append((global_idx, col))
-        global_idx += 1
-
 merged = pd.concat(dfs, ignore_index=True)
+column_index = {i+1: c for i, c in enumerate([c for df in dfs for c in df.columns])}
 
-print(f"\n✓ Total rows merged: {len(merged)}")
-print(f"✓ Total unique columns: {len(column_list)}")
-
-# ---------------- SHOW COLUMNS (UNIQUE LIST) ----------------
-if choice == "2":
-    # Get terminal width (default 120 if can't detect)
-    try:
-        import shutil
-        terminal_width = shutil.get_terminal_size().columns
-    except:
-        terminal_width = 120
-    
-    print("\n" + "="*terminal_width)
-    print("INPUT COLUMNS (UNIQUE LIST)")
-    print("="*terminal_width)
-    
-    # Build a consolidated view: column_name -> list of (file_name, col_num)
-    column_to_files = {}
-    first_occurrence = {}  # Track first column number for each unique column
-    
-    for fname, cols in file_columns.items():
-        for col_num, col_name in cols:
-            if col_name not in column_to_files:
-                column_to_files[col_name] = []
-                first_occurrence[col_name] = col_num  # Store first occurrence
-            column_to_files[col_name].append((fname, col_num))
-    
-    # Display columns with their FIRST column number only
-    print(f"\n{'No.':<6} │ {'Column Name':<45} │ {'Found In'}")
-    print("-" * terminal_width)
-    
-    for col_name, file_info in column_to_files.items():
-        # Show only the FIRST column number
-        first_num = first_occurrence[col_name]
-        
-        # Get unique file names
-        file_names_list = [fname[:20] for fname, num in file_info]
-        unique_files = list(dict.fromkeys(file_names_list))
-        
-        # Build "Found In" text
-        if len(file_info) == 1:
-            found_in = unique_files[0]
-        elif len(unique_files) == 1:
-            found_in = f"{unique_files[0]} ({len(file_info)} times)"
-        else:
-            found_in = ", ".join(unique_files)
-        
-        # Truncate if too long
-        col_name_display = col_name[:44]
-        found_in_display = found_in[:terminal_width - 55] if terminal_width > 55 else found_in[:30]
-        
-        print(f"{first_num:<6} │ {col_name_display:<45} │ {found_in_display}")
-    
-    print("=" * terminal_width)
-    print(f"\n💡 Tip: Use the column number shown above - it will access data from all occurrences")
-    print()
-
-# ---------------- TEMPLATE ----------------
-template_unique_cols = []  # Store unique column settings from template
-
-if choice == "1":
-    templates = [f for f in os.listdir(TEMPLATE_DIR) if f.endswith('.json')]
-    if not templates:
-        print("\n✗ No templates found in templates folder!")
-        print("Please create a template first using option 2.")
-        exit()
-    
-    print("\n" + "="*50)
-    print("AVAILABLE TEMPLATES")
-    print("="*50)
-    for i, t in enumerate(templates, 1):
-        print(f"{i}. {t}")
-    print("="*50)
-    
-    tsel = int(input("\nSelect template number: "))
-    template_path = os.path.join(TEMPLATE_DIR, templates[tsel - 1])
-    
-    with open(template_path) as f:
-        template_data = json.load(f)
-    
-    # Check if template has unique settings
-    if isinstance(template_data, dict) and "columns" in template_data:
-        template = template_data["columns"]
-        template_unique_cols = template_data.get("unique_columns", [])
-    else:
-        template = template_data
-        template_unique_cols = []
-    
-    print(f"\n✓ Template loaded: {templates[tsel - 1]}")
-    
-    # Ask for Quick Complete or Advanced mode
-    print("\n" + "="*50)
-    print("PROCESSING MODE")
-    print("="*50)
-    print("1. Quick Complete - Use template defaults (auto-process)")
-    print("2. Advanced - Customize settings")
-    mode = input("\nSelect mode (1/2): ").strip()
-    quick_mode = (mode == "1")
-    
-    if quick_mode:
-        print("\n✓ Quick Complete mode activated")
-        print("  → Using template defaults")
-        print("  → Auto-removing duplicates and blanks")
-    
-    # Validate template columns
-    missing_cols = []
-    for rule in template:
-        tokens = rule[1:]
-        # Remove dict if present
-        if isinstance(tokens[-1], dict):
-            tokens = tokens[:-1]
-        # Remove alignment codes
-        tokens = [t for t in tokens if t not in ALIGN_CODES]
-        
-        for token in tokens:
-            # Skip format codes and "0"
-            if token in FORMAT_CODES or token == "0":
-                continue
-            # Check if it's a column list
-            if token.startswith("[") and token.endswith("]"):
-                cols = token.strip("[]").split(",")
-                for col_name in cols:
-                    col_name = col_name.strip()
-                    if col_name not in column_list:
-                        missing_cols.append(col_name)
-            # Single column
-            elif token not in column_list:
-                missing_cols.append(token)
-    
-    if missing_cols:
-        print("\n" + "="*50)
-        print("❌ FAILED TO APPLY TEMPLATE")
-        print("="*50)
-        print("Reason: Column mismatch detected")
-        print("\nMissing columns in your data:")
-        for col in set(missing_cols):
-            print(f"  ✗ {col}")
-        print("\nPossible causes:")
-        print("  - Wrong Excel/CSV file selected")
-        print("  - Columns have been renamed or deleted")
-        print("  - Template was created for different data")
-        print("="*50)
-        exit()
-    
-    print("✓ All template columns found in data")
-
-else:  # Create new template
-    quick_mode = False  # Always False for template creation
-    print("\n" + "="*50)
-    print("FORMAT CODES")
-    print("="*50)
-    for k, v in FORMAT_CODES.items():
-        print(f"  {k} → {v}")
-    print("\nALIGNMENT CODES")
-    print("  l → left,  r → right")
-    print("="*50)
-
+if choice == "3":
+    print("\nCOLUMNS:")
+    [print(f"{i:2}. {c}") for i, c in column_index.items()]
     template = []
     while True:
-        print("\n" + "-"*50)
-        name = input("Output column name (ENTER to finish): ").strip()
+        name = input("\nOutput column name (ENTER to finish): ").strip()
         if not name:
             break
-
-        print("\nMapping format:")
-        print("  - Use 0 for blank/empty column")
-        print("  - Enter column number(s) from the list above")
-        print("  - Or use [col1,col2,col3] for multiple columns")
-        print("  - Add format codes (a,b,c,d,e,f,g,h,i,j,u,x,k,q)")
-        print("  - Add alignment (l or r)")
-        print("Example 1: 0  (blank column)")
-        print("Example 2: 5 d e  (column 5, last 10 digits, add +91)")
-        print("Example 3: 0 a  (blank column with today's date)")
-        print("Example 4: 7 q  (column 7 with dict lookup + default value)")
-        
-        mapping_input = input("\nMapping: ").split()
-        
-        # Convert column numbers to column names
-        converted_mapping = []
-        for token in mapping_input:
-            # Check if it's "0" (blank column indicator)
-            if token == "0":
-                converted_mapping.append("0")
-            # Check if it's a number
-            elif token.isdigit():
-                col_num = int(token)
-                if col_num in column_index:
-                    col_name = column_index[col_num]
-                    # Check if this column name is already in converted_mapping
-                    if col_name not in converted_mapping:
-                        converted_mapping.append(col_name)
-                    else:
-                        print(f"ℹ Note: Column '{col_name}' already added (skipping duplicate)")
-                else:
-                    print(f"⚠ Warning: Column number {col_num} not found, skipping")
-            # Check if it's a list of numbers [1,2,3]
-            elif token.startswith("[") and token.endswith("]"):
-                nums = token.strip("[]").split(",")
-                col_names = []
-                for num in nums:
-                    if num.strip().isdigit():
-                        col_num = int(num.strip())
-                        if col_num in column_index:
-                            col_name = column_index[col_num]
-                            # Only add if not already in the list
-                            if col_name not in col_names:
-                                col_names.append(col_name)
-                if col_names:
-                    converted_mapping.append("[" + ",".join(col_names) + "]")
+        mapping = input("Mapping (e.g. 5 d e): ").split()
+        rule = [name]
+        for t in mapping:
+            if t.isdigit() and int(t) in column_index:
+                rule.append(column_index[int(t)])
+            elif t.startswith("["):
+                rule.append("[" + ",".join([column_index[int(n)] for n in t.strip("[]").split(",") if n.strip().isdigit()]) + "]")
             else:
-                # Keep format codes and alignment as-is
-                converted_mapping.append(token)
-
-        rule = [name] + converted_mapping
-
-        if "k" in converted_mapping:
-            rule.append(read_dictionary_inline())
-        elif "q" in converted_mapping:
-            rule.append(read_dictionary_with_default())
-
+                rule.append(t)
         template.append(rule)
-        print(f"✓ Added column: {name}")
-
-    if not template:
-        print("\n✗ No columns added. Exiting.")
-        exit()
-
-    # Ask for unique column settings
-    print("\n" + "="*50)
-    print("DEDUPLICATION SETTINGS (Optional)")
-    print("="*50)
-    print("Do you want to save unique column criteria in this template?")
-    save_unique = input("(y/n): ").lower().strip()
+        print(f"Added  {name}")
     
-    if save_unique == "y":
-        print("\nSelect columns for unique check from OUTPUT columns:")
-        for i, rule in enumerate(template, 1):
-            print(f"{i}. {rule[0]}")
-        
-        unique_input = input("\nEnter column number(s) (comma-separated): ").strip()
-        if unique_input:
-            template_unique_cols = [template[int(i)-1][0] for i in unique_input.split(",")]
-            print(f"✓ Unique columns saved: {', '.join(template_unique_cols)}")
+    s_col = input("\nSort by column name (ENTER for none): ").strip()
 
-    tname = input("\nSave template as (name.json): ").strip()
+    tname = input("\nSave template as: ").strip()
+
+
     if not tname.endswith('.json'):
         tname += '.json'
-    
-    template_path = os.path.join(TEMPLATE_DIR, tname)
-    
-    # Save template with unique settings
-    template_to_save = {
-        "columns": template,
-        "unique_columns": template_unique_cols
-    }
-    
-    with open(template_path, "w") as f:
-        json.dump(template_to_save, f, indent=2)
-    print(f"\n✓ Template saved: {tname}")
+    with open(os.path.join(TEMPLATE_DIR, tname), "w", encoding='utf-8') as f:
+        json.dump({"columns": template, "unique_columns": [], "sort_column": s_col}, f, indent=2)
 
-# ---------------- OUTPUT FILE ----------------
-if choice == "1" and quick_mode:
-    # Quick mode: auto-generate filename
-    output_name = f"OUTPUT_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    print(f"\n✓ Output file: {output_name}.xlsx")
-else:
-    # Advanced mode: ask for filename
-    output_name = input("\nEnter output file name (without .xlsx): ").strip() or "ADVANCED_MERGED_OUTPUT"
-out_path = os.path.join(OUTPUT_DIR, f"{output_name}.xlsx")
 
-# ---------------- APPLY TEMPLATE ----------------
-print("\n⚙ Processing data...")
+    print(f"Saved  {tname}")
+    exit()
 
-output = {}
-column_alignments = {}
+if choice == "1":
+    templates = sorted([f for f in os.listdir(TEMPLATE_DIR) if f.endswith('.json')], key=str.lower)
+    [print(f"{i+1}. {t}") for i, t in enumerate(templates)]
+    tsel = int(input("Select template: "))
+    with open(os.path.join(TEMPLATE_DIR, templates[tsel-1]), encoding='utf-8') as f:
+        tdata = json.load(f)
+        template = tdata["columns"] if isinstance(tdata, dict) else tdata
+        u_cols = (tdata.get("unique_columns") or tdata.get("dedupCols") or []) if isinstance(tdata, dict) else []
+        s_col = tdata.get("sort_column") if isinstance(tdata, dict) else None
 
-for rule in template:
-    col_name = rule[0]
-    tokens = rule[1:]
-    col_dict = {}
-    align = "center"
 
-    # Extract dictionary if present
-    if isinstance(tokens[-1], dict):
-        col_dict = tokens[-1]
-        tokens = tokens[:-1]
 
-    # Extract alignment
-    for t in tokens:
-        if t in ALIGN_CODES:
-            align = ALIGN_CODES[t]
+    print("\nMode:")
+    print("1. Quick  (auto dedup + auto filename)")
+    print("2. Advanced  (custom name & dedup)")
+    p_mode = input("Choose (1/2): ").strip()
 
-    tokens = [t for t in tokens if t not in ALIGN_CODES]
+    out_name = os.path.splitext(templates[tsel-1])[0]
+    if p_mode == "2":
+        out_name = input(f"Output filename [{out_name}]: ").strip() or out_name
+        print("\nDedup:")
+        print("1. Saved columns")
+        print("2. Custom columns")
+        print("3. Skip")
+        d_choice = input("Select (1/2/3): ").strip()
+        if d_choice == "2":
+            u_cols = [c.strip() for c in input("Columns (comma separated): ").split(",") if c.strip()]
+        elif d_choice == "3":
+            u_cols = []
 
-    # Add "0" prefix for format-only columns
-    if tokens and tokens[0] in FORMAT_CODES:
-        tokens = ["0"] + tokens
+    print("Processing...")
+    df, aligns = process_df(dfs, template, out_name, True, u_cols, sort_col=s_col)
 
-    values = []
 
-    for _, row in merged.iterrows():
-        val = ""
-        ptr = 0
-
-        if not tokens or tokens[0] == "0":
-            val = ""
-        elif tokens[0].startswith("["):
-            # Multiple columns
-            col_names = tokens[0].strip("[]").split(",")
-            raw = []
-            for cn in col_names:
-                cn = cn.strip()
-                if cn in merged.columns and str(row[cn]).strip():
-                    raw.append(str(row[cn]).strip())
-            val = " ".join(dict.fromkeys(raw))
-            ptr = 1
-        else:
-            # Single column
-            col_name_token = tokens[0]
-            if col_name_token in merged.columns:
-                val = row[col_name_token]
-            ptr = 1
-
-        # Apply format codes
-        for t in tokens[ptr:]:
-            if t not in ["k", "q"]:
-                val = apply_format(val, t)
-
-        # Apply dictionary lookup (k or q)
-        if ("k" in tokens or "q" in tokens) and col_dict:
-            matches = [v for k, v in col_dict.items() if k != "__default__" and k in str(val).lower()]
-            if matches:
-                val = ", ".join(dict.fromkeys(matches))
-            elif "q" in tokens and "__default__" in col_dict:
-                # Use default value if no match found
-                val = col_dict["__default__"]
-            elif "k" in tokens:
-                # For regular k, leave empty if no match
-                val = ""
-
-        values.append(val)
-
-    output[col_name] = values
-    column_alignments[col_name] = align
-
-final_df = pd.DataFrame(output)
-print(f"✓ Processed {len(final_df)} rows")
-
-# ---------------- DEDUPLICATION (FIXED) ----------------
-if choice == "1" and quick_mode:
-    # Quick Complete mode: auto-process with defaults
-    uniq = "y"
-    print("\n⚙ Auto-processing duplicates and blanks...")
-else:
-    # Advanced mode: ask user
-    uniq = input("\nDo you need unique records? (y/n): ").lower().strip()
-
-total_before = len(final_df)
-duplicate_count = 0
-blank_rows_deleted = 0
-selected_unique_cols = []
-
-if uniq == "y":
-    # Check if template has saved unique columns
-    use_template_unique = False
-    if template_unique_cols:
-        if choice == "1" and quick_mode:
-            # Quick mode: auto-use template columns
-            selected_unique_cols = template_unique_cols
-            use_template_unique = True
-            print(f"✓ Using template columns: {', '.join(template_unique_cols)}")
-        else:
-            # Advanced mode: ask user
-            print(f"\n📋 Template has saved unique columns: {', '.join(template_unique_cols)}")
-            use_saved = input("Use these columns? (y/n): ").lower().strip()
-            if use_saved == "y":
-                selected_unique_cols = template_unique_cols
-                use_template_unique = True
-    
-    if not use_template_unique:
-        print("\nSelect columns for duplicate check:")
-        for i, col in enumerate(final_df.columns, 1):
-            print(f"{i}. {col}")
-
-        idxs = input("\nEnter column number(s) (comma-separated for multiple, single for one): ").strip()
-        selected_unique_cols = [final_df.columns[int(i)-1] for i in idxs.split(",")]
-
-    print(f"\n✓ Using columns for uniqueness: {', '.join(selected_unique_cols)}")
-
-    # Check for blank cells in selected columns (FIXED VERSION)
-    blank_mask = pd.DataFrame(False, index=final_df.index, columns=final_df.columns)
-    
-    for col in selected_unique_cols:
-        blank_mask[col] = (
-            final_df[col].isna() | 
-            (final_df[col] == "") | 
-            (final_df[col].astype(str).str.strip() == "")
-        )
-    
-    has_blanks = blank_mask[selected_unique_cols].any(axis=1).sum() > 0
-
-    if has_blanks:
-        blank_count = blank_mask[selected_unique_cols].any(axis=1).sum()
-        
-        if choice == "1" and quick_mode:
-            # Quick mode: auto-delete blanks
-            delete_blanks = "y"
-            print(f"\n✓ Auto-removing {blank_count} rows with blank cells")
-        else:
-            # Advanced mode: ask user
-            print(f"\n⚠ Found {blank_count} row(s) with blank cells in selected column(s)")
-            delete_blanks = input("Delete rows with blank cells in these columns? (y/n): ").lower().strip()
-        
-        if delete_blanks == "y":
-            # Save blank rows to separate file
-            rows_with_blanks = blank_mask[selected_unique_cols].any(axis=1)
-            blank_df = final_df[rows_with_blanks]
-            final_df = final_df[~rows_with_blanks]
-            blank_rows_deleted = blank_count
-            
-            if not blank_df.empty:
-                blank_path = os.path.join(DUPLICATE_DIR, f"{output_name}_BLANK_ROWS.xlsx")
-                blank_df.to_excel(blank_path, index=False)
-                print(f"✓ Blank rows saved: {blank_path}")
-            print(f"✓ Deleted {blank_rows_deleted} rows with blank cells")
-
-    # Perform deduplication
-    dup_mask = final_df.duplicated(subset=selected_unique_cols, keep="first")
-    dup_df = final_df[dup_mask]
-    duplicate_count = len(dup_df)
-    final_df = final_df[~dup_mask]
-
-    if not dup_df.empty:
-        dup_path = os.path.join(DUPLICATE_DIR, f"{output_name}_DUPLICATES.xlsx")
-        dup_df.to_excel(dup_path, index=False)
-        print(f"✓ Duplicates saved: {dup_path}")
-
-# ---------------- SAVE & FORMAT ----------------
-print("\n⚙ Formatting output file...")
-final_df.to_excel(out_path, index=False)
-wb = load_workbook(out_path)
-ws = wb.active
-header_font = Font(bold=True)
-
-for col in ws.columns:
-    name = col[0].value
-    align = column_alignments.get(name, "center")
-    for cell in col:
-        cell.alignment = Alignment(horizontal=align, vertical="center")
-        if cell.row == 1:
-            cell.font = header_font
-    ws.column_dimensions[col[0].column_letter].width = max(len(str(c.value)) if c.value else 0 for c in col) + 4
-
-wb.save(out_path)
-
-# ---------------- SUMMARY ----------------
-print("\n" + "="*50)
-print("📊 MERGE SUMMARY")
-print("="*50)
-print(f"Total rows before dedupe : {total_before}")
-if blank_rows_deleted > 0:
-    print(f"Blank rows deleted       : {blank_rows_deleted}")
-print(f"Duplicates removed       : {duplicate_count}")
-print(f"Unique rows kept         : {len(final_df)}")
-print(f"\n✅ Final output created: {out_path}")
-if blank_rows_deleted > 0:
-    print(f"📄 Blank rows file: {os.path.join(DUPLICATE_DIR, f'{output_name}_BLANK_ROWS.xlsx')}")
-if duplicate_count > 0:
-    print(f"📄 Duplicates file: {os.path.join(DUPLICATE_DIR, f'{output_name}_DUPLICATES.xlsx')}")
-print("="*50)
+    ts = datetime.now().strftime("%y%m%d_%H%M")
+    out_path = os.path.join(OUTPUT_DIR, f"{out_name}_{ts}.xlsx")
+    df.to_excel(out_path, index=False)
+    print(f"Done  {out_path}")

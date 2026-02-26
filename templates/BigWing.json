@@ -1,0 +1,49 @@
+{
+  "columns": [
+    [
+      "Date",
+      "a",
+      "l"
+    ],
+    [
+      "Hirise",
+      "0"
+    ],
+    [
+      "Campaign",
+      "campaign_name",
+      "l"
+    ],
+    [
+      "Name",
+      "full_name",
+      "l",
+      "h"
+    ],
+    [
+      "Contact No",
+      "phone",
+      "d",
+      "l",
+      "i"
+    ],
+    [
+      "Remark",
+      "0"
+    ],
+    [
+      "Location",
+      "are_you_located_in_whitefield_/_hoodi?",
+      "h"
+    ],
+    [
+      "Lead Created Date & Time",
+      "created_time"
+    ]
+  ],
+  "unique_columns": [
+    "Contact No"
+  ],
+  "sort_column": "Lead Created Date & Time",
+  "sort_order": "asc"
+}

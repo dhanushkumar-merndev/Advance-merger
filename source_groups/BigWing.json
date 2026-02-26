@@ -1,0 +1,19 @@
+{
+  "name": "BigWing",
+  "templateName": "BigWing",
+  "sources": [
+    {
+      "label": "Exchange & Upgrade to an Amazing new Honda CB350_Leads_2026-02-06_2026-02-23",
+      "path": "input/Exchange & Upgrade to an Amazing new Honda CB350_Leads_2026-02-06_2026-02-23.csv"
+    },
+    {
+      "label": "Exchange & Upgrade to an Amazing new Honda_Leads_2026-02-02_2026-02-23",
+      "path": "input/Exchange & Upgrade to an Amazing new Honda_Leads_2026-02-02_2026-02-23.csv"
+    },
+    {
+      "label": "Rev-up for a New Ride @ Honda BigWing Whitefield_Complimentary Accessories_Leads_2026-02-06_2026-02-23",
+      "path": "input/Rev-up for a New Ride @ Honda BigWing Whitefield_Complimentary Accessories_Leads_2026-02-06_2026-02-23.csv"
+    }
+  ],
+  "created": "2026-02-26T13:31:44.493Z"
+}
