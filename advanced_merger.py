@@ -431,6 +431,11 @@ if choice == "1":
     print("1. Quick  (auto dedup + auto filename)")
     print("2. Advanced  (custom name & dedup)")
     p_mode = input("Choose (1/2): ").strip()
+    print("\nMerge Type:")
+    print("1. Full Merge")
+    print("2. Incremental (vs Baseline)")
+    inc_choice = input("Choose (1/2): ").strip()
+    incremental = (inc_choice == "2")
     out_name = os.path.splitext(templates[tsel-1])[0]
     if p_mode == "2":
         out_name = input(f"Output filename [{out_name}]: ").strip() or out_name
@@ -445,6 +450,23 @@ if choice == "1":
             u_cols = []
     print("Processing...")
     df, aligns = process_df(dfs, template, out_name, True, u_cols, sort_col=s_col, sort_order=s_order)
+    
+    if incremental and u_cols:
+        baseline_path = os.path.join(BASELINE_DIR, f"{out_name}.xlsx")
+        if os.path.exists(baseline_path):
+            try:
+                b_df = pd.read_excel(baseline_path).copy()
+                b_df.columns = b_df.columns.astype(str).str.strip()
+                valid_u_cols = [c for c in u_cols if c in df.columns and c in b_df.columns]
+                if valid_u_cols:
+                    df_key = df[valid_u_cols].astype(str).apply(lambda x: x.str.strip().str.lower())
+                    b_key  = b_df[valid_u_cols].astype(str).apply(lambda x: x.str.strip().str.lower())
+                    df_key_str = df_key.apply(lambda r: "|".join(r.values), axis=1)
+                    b_key_str  = b_key.apply(lambda r: "|".join(r.values), axis=1)
+                    df = df[~df_key_str.isin(set(b_key_str))].reset_index(drop=True)
+                    print(f"Incremental filtering: {len(df)} new rows keep")
+            except:
+                print("Baseline unreadable or incompatible.")
     ts = datetime.now().strftime("%y%m%d_%H%M")
     out_path = os.path.join(OUTPUT_DIR, f"{out_name}_{ts}.xlsx")
     df.to_excel(out_path, index=False)

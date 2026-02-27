@@ -817,29 +817,33 @@ select.input { cursor: pointer; }
               </div>
             </div>
             <div id="runAdvancedOpts1" class="hidden" style="margin-top:10px;padding:12px;background:var(--surface2);border-radius:8px;border:1.5px solid var(--border)">
-            <label class="form-label" style="margin-bottom:8px">Deduplication Logic</label>
-            <div style="display:flex;gap:12px">
-              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="radio" name="runDedup1" value="saved" checked> Saved Columns</label>
-              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="radio" name="runDedup1" value="custom"> Custom Selection</label>
-              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="radio" name="runDedup1" value="skip"> Skip Dedup</label>
+              <div class="form-row" style="margin-bottom: 12px">
+                <label class="form-label">Custom Output Filename</label>
+                <input type="text" id="runOutputName1" class="input" placeholder="e.g. My_Merged_Data"/>
+              </div>
+              <label class="form-label" style="margin-bottom:8px">Deduplication Logic</label>
+              <div style="display:flex;gap:12px">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="radio" name="runDedup1" value="saved" checked> Saved Columns</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="radio" name="runDedup1" value="custom"> Custom Selection</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="radio" name="runDedup1" value="skip"> Skip Dedup</label>
+              </div>
+              
+              <div id="runCustomDedupContainer" class="hidden" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+                <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:6px">SELECT UNIQUE COLUMNS:</div>
+                <div id="runCustomDedupList" class="folder-col-chips" style="gap:4px"></div>
+              </div>
             </div>
-            
-            <div id="runCustomDedupContainer" class="hidden" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-              <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:6px">SELECT UNIQUE COLUMNS:</div>
-              <div id="runCustomDedupList" class="folder-col-chips" style="gap:4px"></div>
-            </div>
-          </div>
 
-          <div id="runCampaignOpts" class="hidden" style="margin-top:12px;padding:12px;background:var(--blue-soft);border-radius:8px;border:1.5px solid var(--blue-border)">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <div style="font-size:13px;font-weight:700;color:var(--blue)">Incremental Merge</div>
-              <label class="switch-wrap">
-                <input type="checkbox" id="runIncrementalCheck">
-                <span class="switch-slider"></span>
-              </label>
+            <div id="runIncrementalOpts1" style="margin-top:12px;padding:12px;background:var(--blue-soft);border-radius:8px;border:1.5px solid var(--blue-border)">
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="font-size:13px;font-weight:700;color:var(--blue)">Incremental Merge</div>
+                <label class="switch-wrap">
+                  <input type="checkbox" id="runIncrementalCheck1">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div style="font-size:11px;color:var(--blue);margin-top:4px;opacity:0.8">Compare current results with stored baseline in <code style="font-family:var(--mono)">templates/baselines/</code> and only show NEW rows.</div>
             </div>
-            <div style="font-size:11px;color:var(--blue);margin-top:4px;opacity:0.8">Compare results with last "Saved" version and only show NEW rows.</div>
-          </div>
           </div>
           <!-- MODE 4 -->
           <div class="mode-section" id="runMode4">
@@ -2846,12 +2850,14 @@ function copyTableToClipboard(tableId = 'viewerTable') {
   const table = document.getElementById(tableId);
   if (!table) { toast('Table not found','error'); return; }
   let text = '';
-  for (let row of table.rows) {
+  // Skip row 0 (headers)
+  for (let i = 1; i < table.rows.length; i++) {
+    let row = table.rows[i];
     let cells = [...row.cells].map(c => c.innerText);
     text += cells.join('\t') + '\n';
   }
   copyToClipboard(text);
-  toast('Copied to clipboard!', 'success');
+  toast('Copied data only!', 'success');
 }
 
 // ─── RUN PAGE ──────────────────────────────────────────────────────────────
@@ -3048,12 +3054,19 @@ function generateCommand(){
       inputs.push({prompt:`File ${extFiles.length+1} (ENTER to finish):`,value:'',note:'Press ENTER'});
     }
     inputs.push({prompt:'Select template:',value:String(getTemplateIndex(tplName)),note:`#${getTemplateIndex(tplName)} = "${tplName}"`});
+    
     if(procMode==='quick'){
       inputs.push({prompt:'Quick or Advanced (1/2):',value:'1',note:'Quick = auto dedup + auto filename'});
     } else {
       inputs.push({prompt:'Quick or Advanced (1/2):',value:'2'});
+    }
+
+    const inc = document.getElementById('runIncrementalCheck1').checked;
+    inputs.push({prompt:'Full or Incremental (1/2):', value: inc ? '2' : '1', note: inc ? 'Incremental' : 'Full'});
+
+    if(procMode==='advanced'){
       const outName = document.getElementById('runOutputName1').value.trim();
-      inputs.push({prompt:'Output file name:',value:outName || 'MERGED_OUTPUT'});
+      inputs.push({prompt:'Output file name:',value:outName || tplName});
       
       const dedupType = document.querySelector('[name="runDedup1"]:checked').value;
       if(dedupType === 'saved') {
