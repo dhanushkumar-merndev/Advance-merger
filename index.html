@@ -167,8 +167,17 @@ body { display: flex; }
 .lc-left { display: flex; align-items: center; flex: 1; min-width: 0; }
 .lc-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .card-list { display: flex; flex-direction: column; gap: 8px; }
-.empty-state { text-align: center; padding: 48px 24px; background: var(--surface); border: 1.5px dashed var(--border); border-radius: var(--radius); color: var(--text3); font-size: 13px; }
-.empty-state .es-icon { font-size: 32px; margin-bottom: 10px; }
+.empty-state { 
+  text-align: center; padding: 64px 24px; 
+  background: var(--surface); 
+  border: 2px dashed var(--blue-border); 
+  border-radius: var(--radius); 
+  color: var(--text3); font-size: 13px;
+  transition: all .25s ease;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.empty-state.drag-over { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); transform: scale(1.01); }
+.empty-state .es-icon { font-size: 40px; margin-bottom: 16px; opacity: .5; color: var(--blue); }
 .empty-state strong { display: block; color: var(--text2); margin-bottom: 4px; }
 .toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
 
@@ -551,9 +560,17 @@ select.input { cursor: pointer; }
 
 /* ═══ DRAG-DROP ZONES ═══ */
 .tree-node.drag-over > .tree-node-hdr { border: 2px dashed var(--blue); background: var(--blue-soft); border-radius: 8px; }
-.input-drop-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; color: var(--text3); font-size: 12px; margin-top: 12px; transition: all .15s; cursor: pointer; }
-.input-drop-zone:hover, .input-drop-zone.drag-over { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); }
-.input-drop-zone .drop-icon { font-size: 24px; margin-bottom: 6px; }
+.input-drop-zone { 
+  border: 2px dashed var(--blue-border); 
+  border-radius: 12px; padding: 32px; 
+  text-align: center; color: var(--text3); 
+  font-size: 13px; margin-top: 16px; 
+  transition: all .25s cubic-bezier(.16,1,.3,1); 
+  cursor: pointer; background: var(--surface);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.input-drop-zone:hover, .input-drop-zone.drag-over { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); box-shadow: var(--shadow-sm); transform: translateY(-2px); }
+.input-drop-zone .drop-icon { font-size: 28px; margin-bottom: 4px; color: var(--blue); opacity: .7; }
 .folder-actions-bar { display: flex; align-items: center; gap: 4px; }
 
 /* Info box colors */
@@ -2430,10 +2447,23 @@ async function scanOutputFolder(showLoading=true){
     const files=[];
     for await(const[name,handle]of outDir.entries()){
       if(handle.kind==='file'&&(name.endsWith('.xlsx')||name.endsWith('.csv'))){
-        const file=await handle.getFile();files.push({name,size:file.size,lastModified:file.lastModified,handle});
+        const file=await handle.getFile();files.push({name,size:file.size,lastModified:file.lastModified,handle,isBaseline:false});
       }
     }
-    if(!files.length){sidebar.innerHTML='<div style="padding:20px 10px;font-size:12px;color:var(--text3);text-align:center;border:1.5px dashed var(--border);border-radius:10px">No output files found in <code style="font-size:11px">/output</code></div>';return;}
+    
+    // Also scan baselines
+    try {
+      const templatesDir = await STATE.folderHandle.getDirectoryHandle('templates');
+      const baselinesDir = await templatesDir.getDirectoryHandle('baselines');
+      for await(const[name,handle]of baselinesDir.entries()){
+        if(handle.kind==='file'&&(name.endsWith('.xlsx')||name.endsWith('.csv'))){
+          const file=await handle.getFile();
+          files.push({name,size:file.size,lastModified:file.lastModified,handle,isBaseline:true});
+        }
+      }
+    } catch(e) {}
+
+    if(!files.length){sidebar.innerHTML='<div style="padding:20px 10px;font-size:12px;color:var(--text3);text-align:center;border:1.5px dashed var(--border);border-radius:10px">No output files found.</div>';return;}
     files.sort((a,b)=>b.lastModified-a.lastModified);STATE._outputFiles=files;
     const searchHtml = `<div class="search-wrap" style="max-width:none;margin-bottom:12px">
       <i data-lucide="search" class="search-icon"></i>
@@ -2453,7 +2483,15 @@ function renderHierarchicalFileSelector(files, query=''){
   const el=document.getElementById('viewerTree');
   if(!el) return;
   const filtered = query ? files.filter(f => f.name.toLowerCase().includes(query.toLowerCase())) : files;
-  const tree = { 'Templates': {}, 'Campaigns': {}, 'Other': [] };
+  
+  // Separate categories as requested
+  const tree = { 
+    'Template Baselines': {}, 
+    'Campaign Baselines': {}, 
+    'Templates': {}, 
+    'Campaigns': {}, 
+    'Other': [] 
+  };
   
   filtered.forEach(f=>{
     const base=f.name.replace(/\.[^.]+$/,'');
@@ -2461,17 +2499,20 @@ function renderHierarchicalFileSelector(files, query=''){
       const sn=t.name.replace(/[^\w\-]/g,'_');
       return base===sn || base===t.name || base.startsWith(sn+'_') || base.startsWith(t.name+'_');
     });
+    
     if(tpl) {
-       if(!tree['Templates'][tpl.name]) tree['Templates'][tpl.name] = [];
-       tree['Templates'][tpl.name].push(f);
+       const cat = f.isBaseline ? 'Template Baselines' : 'Templates';
+       if(!tree[cat][tpl.name]) tree[cat][tpl.name] = [];
+       tree[cat][tpl.name].push(f);
     } else {
        const camp=STATE.campaigns.find(c=>{
           const sn=c.name.replace(/[^\w\-]/g,'_');
           return base===sn || base===c.name || base.startsWith(sn+'_') || base.startsWith(c.name+'_');
        });
        if(camp) {
-          if(!tree['Campaigns'][camp.name]) tree['Campaigns'][camp.name] = [];
-          tree['Campaigns'][camp.name].push(f);
+          const cat = f.isBaseline ? 'Campaign Baselines' : 'Campaigns';
+          if(!tree[cat][camp.name]) tree[cat][camp.name] = [];
+          tree[cat][camp.name].push(f);
        } else {
           tree['Other'].push(f);
        }
@@ -2480,7 +2521,8 @@ function renderHierarchicalFileSelector(files, query=''){
 
   const renderFileRow = (f) => `
     <div class="tree-file-row ${STATE._activeOutputName===f.name?'active':''}" onclick="loadSelectedOutput('${escAttr(f.name)}')">
-      <div class="tree-file-info"><i data-lucide="file-spreadsheet" class="icon" style="opacity:.6"></i>
+      <div class="tree-file-info">
+        <i data-lucide="${f.isBaseline?'database':'file-spreadsheet'}" class="icon" style="opacity:.6;color:${f.isBaseline?'var(--purple)':'currentColor'}"></i>
         <div style="flex:1;min-width:0">
           <div class="tree-file-name" title="${esc(f.name)}">${esc(f.name)}</div>
           <div style="font-size:9px;color:var(--text3);opacity:.7;margin-top:1px">${formatDateTime(f.lastModified)} • ${formatFileSize(f.size)}</div>
@@ -2511,6 +2553,15 @@ function renderHierarchicalFileSelector(files, query=''){
   `;};
 
   let html = '<div class="output-tree">';
+  
+  if(Object.keys(tree['Template Baselines']).length > 0) {
+    html += `<div class="tree-category-label">Template Baselines</div>`;
+    Object.keys(tree['Template Baselines']).sort().forEach(name => html += renderGroupNode(name, tree['Template Baselines'][name], 'layout', 'tpl-base-'));
+  }
+  if(Object.keys(tree['Campaign Baselines']).length > 0) {
+    html += `<div class="tree-category-label">Campaign Baselines</div>`;
+    Object.keys(tree['Campaign Baselines']).sort().forEach(name => html += renderGroupNode(name, tree['Campaign Baselines'][name], 'target', 'cmp-base-'));
+  }
   if(Object.keys(tree['Templates']).length > 0) {
     html += `<div class="tree-category-label">Templates</div>`;
     Object.keys(tree['Templates']).sort().forEach(name => html += renderGroupNode(name, tree['Templates'][name], 'layout', 'tpl-'));
@@ -2656,7 +2707,25 @@ async function saveActiveCampaignAsBaseline() {
 
 async function deleteOutputFile(name){
   if(!confirm(`Permanently delete "${name}"?`))return;
-  try{const outDir=await STATE.folderHandle.getDirectoryHandle('output');await outDir.removeEntry(name);toast('File deleted','success');if(STATE._activeOutputName===name){document.getElementById('outputViewerContent').innerHTML='<div class="empty-state" style="margin-top:40px"><div class="es-icon"><i data-lucide="table"></i></div><strong>Select a file to view</strong></div>';STATE._activeOutputName=null;refreshIcons();}scanOutputFolder(false);}
+  const f = STATE._outputFiles.find(file => file.name === name);
+  if(!f) return;
+  try{
+    let dir;
+    if(f.isBaseline) {
+      const tDir = await STATE.folderHandle.getDirectoryHandle('templates');
+      dir = await tDir.getDirectoryHandle('baselines');
+    } else {
+      dir = await STATE.folderHandle.getDirectoryHandle('output');
+    }
+    await dir.removeEntry(name);
+    toast('File deleted','success');
+    if(STATE._activeOutputName===name){
+      document.getElementById('outputViewerContent').innerHTML='<div class="empty-state" style="margin-top:40px"><div class="es-icon"><i data-lucide="table"></i></div><strong>Select a file to view</strong></div>';
+      STATE._activeOutputName=null;
+      refreshIcons();
+    }
+    scanOutputFolder(false);
+  }
   catch(e){toast('Could not delete file','error');}
 }
 
@@ -3186,7 +3255,15 @@ async function refreshInputPage() {
   folders.forEach(f => totalFiles += inputData[f].length);
 
   if(totalFiles === 0) {
-    area.innerHTML = '<div class="empty-state"><div class="es-icon"><i data-lucide="folder-open"></i></div><strong>No input files</strong>Place CSV, XLSX, or other data files in your input/ folder.</div>';
+    area.innerHTML = `
+      <div class="empty-state" 
+           ondragover="event.preventDefault();this.classList.add('drag-over')" 
+           ondragleave="this.classList.remove('drag-over')" 
+           ondrop="event.preventDefault();this.classList.remove('drag-over');handleInputFolderDrop(event,'_root')">
+        <div class="es-icon"><i data-lucide="folder-open"></i></div>
+        <strong>No input files</strong>
+        Place CSV, XLSX, or other data files in your input/ folder.
+      </div>`;
     refreshIcons();
     return;
   }
