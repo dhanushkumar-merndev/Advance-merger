@@ -1,9 +1,11 @@
 {
+  "name": "Tansi Motors BigWing",
   "columns": [
     [
       "Date",
       "a",
-      "z"
+      "z",
+      "a"
     ],
     [
       "Hirise",
@@ -42,7 +44,8 @@
     ],
     [
       "Lead Created Date & Time",
-      "created_time"
+      "created_time",
+      "n"
     ]
   ],
   "unique_columns": [

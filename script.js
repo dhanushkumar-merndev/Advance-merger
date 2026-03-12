@@ -9,22 +9,35 @@ async function loadEnv() {
     const resp = await fetch("./env.txt");
     if (!resp.ok) return;
     const text = await resp.text();
-    const lines = text.split("\n");
-    for (const line of lines) {
-      const parts = line.split("=");
-      if (parts.length < 2) continue;
-      const key = parts[0].trim();
-      let value = parts.slice(1).join("=").trim();
-      if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.substring(1, value.length - 1);
-      }
-      if (key === "GOOGLE_CLIENT_EMAIL") {
-        GOOGLE_SA_EMAIL = value;
+    // Use a more robust parsing for env.txt
+    const lines = text.split(/\r?\n/);
+    let currentKey = "";
+    let currentValue = "";
+
+    function flush() {
+      if (!currentKey) return;
+      let val = currentValue.trim();
+      if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+      
+      if (currentKey === "GOOGLE_CLIENT_EMAIL" || currentKey === "GOOGLE_SA_EMAIL") {
+        GOOGLE_SA_EMAIL = val;
         updateSAUI();
-      } else if (key === "GOOGLE_PRIVATE_KEY") {
-        GOOGLE_PRIVATE_KEY = value.replace(/\\n/g, "\n");
+      } else if (currentKey === "GOOGLE_PRIVATE_KEY") {
+        GOOGLE_PRIVATE_KEY = val.replace(/\\n/g, "\n");
       }
     }
+
+    for (const line of lines) {
+      const match = line.match(/^([A-Z0-9_]+)\s*=\s*(.*)$/i);
+      if (match) {
+        flush();
+        currentKey = match[1];
+        currentValue = match[2];
+      } else if (currentKey) {
+        currentValue += "\n" + line;
+      }
+    }
+    flush();
   } catch (e) {
     console.warn("Could not load .env:", e);
   }
@@ -51,7 +64,7 @@ async function getGoogleAccessToken() {
   const header = { alg: "RS256", typ: "JWT" };
   const payload = {
     iss: GOOGLE_SA_EMAIL,
-    scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
+    scope: "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly",
     aud: "https://oauth2.googleapis.com/token",
     exp: expiry,
     iat: now,
@@ -74,7 +87,11 @@ async function getGoogleAccessToken() {
     });
 
     const data = await tokenResp.json();
-    if (data.error) throw new Error(data.error_description || data.error);
+    if (data.error) {
+      console.error("Token exchange failed:", data);
+      throw new Error(data.error_description || data.error);
+    }
+    if (data.access_token) console.log("Google Auth: Token obtained successfully");
     return data.access_token;
   } catch (err) {
     console.error("Auth error:", err);
@@ -194,6 +211,7 @@ const FORMAT_CODES = [
   { code: "a", label: "Today's Date", cat: "time" },
   { code: "b", label: "Time HH:MM", cat: "time" },
   { code: "c", label: "Time HH:MM:SS", cat: "time" },
+  { code: "n", label: "Convert to IST", cat: "time" },
   { code: "j", label: "Remove Dashes", cat: "clean" },
   { code: "u", label: "Remove _", cat: "clean" },
   { code: "x", label: "Remove Dots", cat: "clean" },
@@ -221,6 +239,7 @@ const FMT_DESCRIPTIONS = {
   a: "today's date",
   b: "HH:MM",
   c: "HH:MM:SS",
+  n: "→ IST",
   j: "no dashes",
   u: "no underscores",
   x: "no dots",
@@ -583,12 +602,30 @@ function jsonFileToStateTpl(name, json) {
     const dict =
       colArr.find((t) => typeof t === "object" && t !== null) || null;
 
-    // Separate src (first token) from formats (rest)
-    // In some cases src might be missing if it's just formatters or special codes
-    const src = tokens[0] || "";
-    const fmt = tokens.slice(1).join(" ");
+    // Separate src from formats
+    // If tokens[0] is "0", it's explicitly no source.
+    // If tokens[0] is a known format code, it's NOT a source (src="0").
+    let finalSrc = "0";
+    let finalFmtArr = tokens;
 
-    return { name: colName, src, fmt, dict };
+    if (tokens.length > 0) {
+      const first = tokens[0];
+      if (first === "0") {
+        finalSrc = "0";
+        finalFmtArr = tokens.slice(1);
+      } else {
+        const isFmt = FORMAT_CODES.some((f) => f.code === first);
+        if (isFmt) {
+          finalSrc = "0";
+          finalFmtArr = tokens;
+        } else {
+          finalSrc = first;
+          finalFmtArr = tokens.slice(1);
+        }
+      }
+    }
+
+    return { name: colName, src: finalSrc, fmt: finalFmtArr.join(" "), dict };
   });
 
   return {
@@ -898,7 +935,6 @@ function addTplColumn(existing = null) {
       () => restoreDictEditor(div, existingDict, activeCodes.includes("q")),
       50,
     );
-  container.appendChild(div);
   refreshDedupCols();
   refreshSortCols();
   updateColCount();
@@ -1084,7 +1120,11 @@ function saveTemplate() {
   renderTemplateList();
 
   const jsonObj = templateToJsonFile(tpl);
-  const filename = name.replace(/[^\w\-]/g, "_") + ".json";
+  const filename =
+    name
+      .replace(/[^\w\-\s]/g, "_")
+      .replace(/\s+/g, " ")
+      .trim() + ".json";
   if (STATE.folderHandle) {
     writeToLinkedFolder("templates", filename, jsonObj).then((ok) => {
       if (ok) toast(`Saved to templates/${filename}`, "success");
@@ -1129,7 +1169,7 @@ async function deleteTemplate(i) {
 function templateToJson(tpl) {
   const columns = tpl.columns.map((col) => {
     const tokens = [];
-    if (col.src) tokens.push(col.src);
+    tokens.push(col.src || "0");
     if (col.fmt) tokens.push(...col.fmt.split(/\s+/).filter(Boolean));
     const rule = [col.name, ...tokens];
     if (col.dict && Object.keys(col.dict).length) rule.push(col.dict);
@@ -1564,6 +1604,10 @@ async function exportCampaignExcel(campIdx) {
 // ─── DATA FORMATTING ────────────────────────────────────────────────────────
 function applyJSFormat(val, code, dict = null) {
   try {
+    let d_input = null;
+    if (val instanceof Date) d_input = val;
+    else if (typeof val === "number" && val > 40000 && val < 60000) d_input = new Date((val - 25569) * 86400 * 1000);
+
     const s = String(val === undefined || val === null ? "" : val).trim();
     if (code === "a") {
       const now = new Date();
@@ -1599,7 +1643,60 @@ function applyJSFormat(val, code, dict = null) {
     if (code === "j") return s.replace(/-/g, "");
     if (code === "u") return s.replace(/_/g, "");
     if (code === "x") return s.replace(/\./g, "");
+    if (code === "n") {
+      if (!s && !d_input) return s;
+      let d = d_input;
+      if (!d || isNaN(d.getTime())) d = new Date(s);
 
+      // Try DD-MM-YYYY HH:MM:SS or DD-MM-YYYY HH:MM
+      if (isNaN(d.getTime())) {
+        const m = s.match(
+          /^(\d{2})[\/\-](\d{2})[\/\-](\d{4})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/,
+        );
+        if (m)
+          d = new Date(
+            `${m[3]}-${m[2]}-${m[1]}T${m[4] || "00"}:${m[5] || "00"}:${m[6] || "00"}`,
+          );
+      }
+      if (isNaN(d.getTime())) return s;
+
+      // Get IST time parts
+      const ist = new Date(
+        d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
+      );
+      const dd = String(ist.getDate()).padStart(2, "0");
+      const mm = String(ist.getMonth() + 1).padStart(2, "0");
+      const yyyy = ist.getFullYear();
+      const hh = String(ist.getHours()).padStart(2, "0");
+      const min = String(ist.getMinutes()).padStart(2, "0");
+      const sec = String(ist.getSeconds()).padStart(2, "0");
+
+      // Detect input format and mirror it
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(s)) {
+        // ISO with or without offset → ISO IST
+        return `${yyyy}-${mm}-${dd}T${hh}:${min}:${sec}+05:30`;
+      }
+      if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(s)) {
+        return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+      }
+      if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/.test(s)) {
+        return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}\s\d{2}:\d{2}:\d{2}/.test(s)) {
+        return `${dd}-${mm}-${yyyy} ${hh}:${min}:${sec}`;
+      }
+      if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}\s\d{2}:\d{2}/.test(s)) {
+        return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
+      }
+      if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(s)) {
+        return `${dd}-${mm}-${yyyy}`;
+      }
+      // Fallback
+      return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
+    }
     // Dictionary mapping (k and q)
     if ((code === "k" || code === "q") && dict) {
       const useDefault = code === "q";
@@ -1658,7 +1755,7 @@ async function tryReadFileFromFolder(srcPath, template) {
       for (const row of rows) {
         const mapped = template.columns.map((col) => {
           const srcCol = col.src || "";
-          const tokens = col.tokens || [];
+          const tokens = col.fmt ? col.fmt.split(/\s+/).filter(Boolean) : [];
           let val = "";
 
           if (srcCol === "0") {
@@ -1680,7 +1777,7 @@ async function tryReadFileFromFolder(srcPath, template) {
           // Apply formatters
           for (const token of tokens) {
             if (["k", "q"].includes(token)) continue; // Dict lookup not fully supported in JS yet
-            val = applyJSFormat(val, token);
+            val = applyJSFormat(val, token, col.dict);
           }
           return val;
         });
@@ -2258,6 +2355,7 @@ async function fetchGoogleSheetCols() {
   statusEl.textContent = "Authenticating with Google...";
 
   try {
+    await loadSheetJS();
     const token = await getGoogleAccessToken();
     statusEl.textContent = "Fetching protected Google Sheet...";
 
@@ -2265,7 +2363,7 @@ async function fetchGoogleSheetCols() {
     const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
     if (!match) throw new Error("Invalid Google Sheets URL");
     const sheetId = match[1];
-    fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+    fetchUrl = `https://www.googleapis.com/drive/v3/files/${sheetId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
 
     const resp = await fetch(fetchUrl, {
       headers: { Authorization: `Bearer ${token}` },
@@ -2931,7 +3029,7 @@ function switchSheet(btn, idx) {
         (t) => t.name === STATE._activeTemplateName,
       );
       const tplCol = activeTpl?.columns?.find((c) => c.name === h);
-      const alignClass = getAlignmentClass(tplCol ? tplCol.fmt : "");
+      const alignClass = getSmartAlignmentClass(h, tplCol ? tplCol.fmt : "");
       return `<th class="${alignClass}">${esc(String(h))}</th>`;
     })
     .join("");
@@ -2973,11 +3071,14 @@ function renderMoreRows() {
             );
             const tplCol = activeTpl?.columns?.find((c) => c.name === h);
             const fmt = tplCol ? tplCol.fmt : "";
-            const alignClass = getAlignmentClass(fmt);
+            const alignClass = getSmartAlignmentClass(h, fmt);
             const isDate =
               String(h).toLowerCase().includes("time") ||
               String(h).toLowerCase().includes("date");
-            return `<td class="${alignClass} ${isDate ? "date-col" : ""}">${esc(formatted)}</td>`;
+            const isNumeric =
+              typeof rawVal === "number" ||
+              (!isNaN(rawVal) && String(rawVal).trim() !== "");
+            return `<td class="${alignClass} ${isDate ? "date-col" : ""} ${isNumeric ? "number-cell" : ""}">${esc(formatted)}</td>`;
           })
           .join("");
         return `<tr onclick="this.querySelectorAll('td').forEach(t=>t.style.whiteSpace=t.style.whiteSpace==='normal'?'nowrap':'normal')">${cellsHtml}</tr>`;
@@ -2992,34 +3093,60 @@ function renderMoreRows() {
 
 function formatTableValue(val, colName) {
   if (val === null || val === undefined) return "";
-  const s = String(val);
-  const cn = colName.toLowerCase();
-
-  // Format Date/Time columns
-  if (cn.includes("time") || cn.includes("date")) {
-    const d = new Date(val);
-    if (!isNaN(d.getTime())) {
-      // Return e.g. "Feb 26, 2026 10:29 PM"
-      return d.toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      });
-    }
+  if (val instanceof Date || (typeof val === "number" && val > 40000 && val < 60000 && String(colName).toLowerCase().includes("date"))) {
+    try {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) {
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yyyy = d.getFullYear();
+        const hh = String(d.getHours()).padStart(2, "0");
+        const min = String(d.getMinutes()).padStart(2, "0");
+        return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
+      }
+    } catch (e) {}
   }
-  return s;
+  return String(val);
 }
 
-function getAlignmentClass(fmt) {
-  if (!fmt) return "align-center"; // Default
-  const codes = fmt.trim().split(/\s+/);
-  if (codes.includes("l")) return "align-left";
-  if (codes.includes("r")) return "align-right";
-  if (codes.includes("z")) return "align-center";
-  return "align-center"; // Explicit default
+function getSmartAlignmentClass(colName, fmt) {
+  if (fmt) {
+    const codes = fmt.trim().split(/\s+/);
+    if (codes.includes("l")) return "align-left";
+    if (codes.includes("r")) return "align-right";
+    if (codes.includes("z")) return "align-center";
+  }
+
+  const name = String(colName).toLowerCase();
+
+  // Smart Defaults based on common column names
+  if (
+    name.includes("id") ||
+    name.includes("count") ||
+    name.includes("price") ||
+    name.includes("amount") ||
+    name.includes("total") ||
+    name.includes("qty") ||
+    name.includes("quantity") ||
+    name.includes("phone") ||
+    name.includes("zip") ||
+    name.includes("pin")
+  ) {
+    return "align-right";
+  }
+
+  if (
+    name.includes("date") ||
+    name.includes("time") ||
+    name.includes("status") ||
+    name.includes("tag") ||
+    name.includes("category") ||
+    name.includes("code")
+  ) {
+    return "align-center";
+  }
+
+  return "align-left";
 }
 
 function toggleViewerSidebar() {
@@ -4697,7 +4824,7 @@ async function fetchExternalData(url, template) {
     const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
     if (match) {
       const sheetId = match[1];
-      fetchUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+      fetchUrl = `https://www.googleapis.com/drive/v3/files/${sheetId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
       isGSheet = true;
       try {
         token = await getGoogleAccessToken();
@@ -4706,6 +4833,7 @@ async function fetchExternalData(url, template) {
   }
 
   try {
+    await loadSheetJS();
     let resp;
     if (isGSheet && token) {
       resp = await fetch(fetchUrl, {
