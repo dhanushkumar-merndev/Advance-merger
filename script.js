@@ -3423,6 +3423,7 @@ function toggleExpandTable() {
   const icon = document.getElementById("expandIcon");
   const text = document.getElementById("expandText");
   const isExpanded = wrap.classList.toggle("expanded");
+  document.body.classList.toggle("body-expanded", isExpanded);
   if (icon) {
     icon.setAttribute("data-lucide", isExpanded ? "minimize" : "maximize");
   }
