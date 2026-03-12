@@ -1,0 +1,23 @@
+{
+  "name": "advanced-merger",
+  "version": "1.0.0",
+  "main": "server.js",
+  "bin": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "pkg . --targets node20-win-x64 --output AdvancedMerger.exe"
+  },
+  "pkg": {
+    "assets": [
+      "index.html",
+      "script.js",
+      "style.css",
+      "env.txt",
+      "templates/**/*",
+      "source_groups/**/*",
+      "campaigns/**/*",
+      "input/**/*",
+      "public/**/*"
+    ]
+  }
+}

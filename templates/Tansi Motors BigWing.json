@@ -3,7 +3,7 @@
     [
       "Date",
       "a",
-      "l"
+      "z"
     ],
     [
       "Hirise",
@@ -17,15 +17,18 @@
     [
       "Name",
       "full_name",
+      "h",
       "l",
-      "h"
+      "u",
+      "x",
+      "j"
     ],
     [
       "Contact No",
       "phone",
       "d",
-      "l",
-      "i"
+      "i",
+      "z"
     ],
     [
       "Remark",
@@ -34,7 +37,8 @@
     [
       "Location",
       "are_you_located_in_whitefield_/_hoodi?",
-      "h"
+      "f",
+      "z"
     ],
     [
       "Lead Created Date & Time",
@@ -46,5 +50,7 @@
   ],
   "sort_column": "Lead Created Date & Time",
   "sort_order": "asc",
-  "google_links": []
+  "google_links": [
+    "https://docs.google.com/spreadsheets/d/155hf3icvBa3jf8f8sdfykIibe0LLO6gCaHCmKfV8aIw/edit?usp=sharing"
+  ]
 }
