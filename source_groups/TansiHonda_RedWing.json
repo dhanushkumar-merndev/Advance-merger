@@ -1,0 +1,12 @@
+{
+  "name": "TansiHonda RedWing",
+  "templateName": "Tansi Honda RedWing",
+  "sources": [
+    {
+      "label": "Sheet from Template",
+      "path": "https://docs.google.com/spreadsheets/d/1WnlBCd9aU5ptp67PAuK_sU3EHUb-VPjqlYkXj1L1_ic/edit?usp=sharing",
+      "pages": ""
+    }
+  ],
+  "created": "2026-03-12T12:04:16.125Z"
+}

@@ -18,8 +18,11 @@ async function loadEnv() {
       if (!currentKey) return;
       let val = currentValue.trim();
       if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-      
-      if (currentKey === "GOOGLE_CLIENT_EMAIL" || currentKey === "GOOGLE_SA_EMAIL") {
+
+      if (
+        currentKey === "GOOGLE_CLIENT_EMAIL" ||
+        currentKey === "GOOGLE_SA_EMAIL"
+      ) {
         GOOGLE_SA_EMAIL = val;
         updateSAUI();
       } else if (currentKey === "GOOGLE_PRIVATE_KEY") {
@@ -64,7 +67,8 @@ async function getGoogleAccessToken() {
   const header = { alg: "RS256", typ: "JWT" };
   const payload = {
     iss: GOOGLE_SA_EMAIL,
-    scope: "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly",
+    scope:
+      "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly",
     aud: "https://oauth2.googleapis.com/token",
     exp: expiry,
     iat: now,
@@ -91,7 +95,8 @@ async function getGoogleAccessToken() {
       console.error("Token exchange failed:", data);
       throw new Error(data.error_description || data.error);
     }
-    if (data.access_token) console.log("Google Auth: Token obtained successfully");
+    if (data.access_token)
+      console.log("Google Auth: Token obtained successfully");
     return data.access_token;
   } catch (err) {
     console.error("Auth error:", err);
@@ -114,7 +119,7 @@ async function loadSheetJS() {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
     script.src =
-      "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      "https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js";
     script.onload = resolve;
     script.onerror = reject;
     document.head.appendChild(script);
@@ -215,6 +220,7 @@ const FORMAT_CODES = [
   { code: "j", label: "Remove Dashes", cat: "clean" },
   { code: "u", label: "Remove _", cat: "clean" },
   { code: "x", label: "Remove Dots", cat: "clean" },
+  { code: "p", label: "Date: 3 Mar 2026", cat: "time" },
   { code: "0", label: "Blank Column", cat: "special" },
   { code: "k", label: "Dict Lookup", cat: "special" },
   { code: "q", label: "Dict + Default", cat: "special" },
@@ -243,6 +249,7 @@ const FMT_DESCRIPTIONS = {
   j: "no dashes",
   u: "no underscores",
   x: "no dots",
+  p: "D MMM YYYY (Time)",
   0: "blank",
   k: "dict lookup",
   q: "dict + default",
@@ -635,6 +642,7 @@ function jsonFileToStateTpl(name, json) {
     sortCol: json.sort_column || "",
     sortOrder: json.sort_order || "asc",
     googleLinks: json.google_links || json.googleLinks || [],
+    pages: json.pages || [],
   };
 }
 
@@ -869,6 +877,7 @@ function openCreateTemplate() {
   document.getElementById("colCount").textContent = "0";
   STATE.currentTemplateLinks = [];
   STATE._scannedInputFileNames = [];
+  STATE.selectedTemplatePages = [];
   renderTemplateLinkList();
   addTplColumn();
   navigate("template");
@@ -878,6 +887,7 @@ function openCreateTemplate() {
 function editTemplate(i) {
   STATE.editingTemplate = i;
   STATE.discoveredCols = [];
+  STATE.selectedTemplatePages = [];
   const t = STATE.templates[i];
   document.getElementById("templatePanelTitle").textContent = "Edit Template";
   document.getElementById("tplName").value = t.name;
@@ -890,6 +900,7 @@ function editTemplate(i) {
   refreshSortCols(t.sortCol || "");
   document.getElementById("tplSortOrder").value = t.sortOrder || "asc";
   STATE.currentTemplateLinks = t.googleLinks || [];
+  STATE.selectedTemplatePages = t.pages || [];
   renderTemplateLinkList();
   updateColCount();
   openPanel("templatePanel");
@@ -1107,6 +1118,7 @@ function saveTemplate() {
     sortCol,
     sortOrder,
     googleLinks: STATE.currentTemplateLinks,
+    pages: STATE.selectedTemplatePages || [],
   };
   if (STATE.editingTemplate !== null) {
     STATE.templates[STATE.editingTemplate] = tpl;
@@ -1182,6 +1194,7 @@ function templateToJson(tpl) {
     sort_column: tpl.sortCol || "",
     sort_order: tpl.sortOrder || "asc",
     google_links: tpl.googleLinks || [],
+    pages: tpl.pages || [],
   };
 }
 
@@ -1316,6 +1329,7 @@ function saveGroup() {
     .map((el) => ({
       label: el.querySelector(".grp-src-label")?.value.trim() || "",
       path: el.querySelector(".grp-src-path")?.value.trim() || "",
+      pages: el.querySelector(".src-pages-input")?.value.trim() || "",
     }))
     .filter((s) => s.path);
   if (!sources.length) {
@@ -1577,6 +1591,7 @@ async function exportCampaignExcel(campIdx) {
     ws["!cols"] = colWidths;
 
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    applyCellStyles(ws, template);
     tabsAdded++;
   }
 
@@ -1601,12 +1616,35 @@ async function exportCampaignExcel(campIdx) {
   refreshHome();
 }
 
+function applyCellStyles(ws, template) {
+  if (!ws || !template) return;
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  
+  template.columns.forEach((col, colIdx) => {
+    const fmt = (col.fmt || "").toLowerCase();
+    let align = null;
+    if (fmt.includes(" l ") || fmt.startsWith("l ") || fmt.endsWith(" l") || fmt === "l") align = "left";
+    if (fmt.includes(" r ") || fmt.startsWith("r ") || fmt.endsWith(" r") || fmt === "r") align = "right";
+    if (fmt.includes(" z ") || fmt.startsWith("z ") || fmt.endsWith(" z") || fmt === "z") align = "center";
+
+    if (align) {
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: colIdx });
+        if (!ws[addr]) continue;
+        if (!ws[addr].s) ws[addr].s = {};
+        ws[addr].s.alignment = { horizontal: align, vertical: "center" };
+      }
+    }
+  });
+}
+
 // ─── DATA FORMATTING ────────────────────────────────────────────────────────
 function applyJSFormat(val, code, dict = null) {
   try {
     let d_input = null;
     if (val instanceof Date) d_input = val;
-    else if (typeof val === "number" && val > 40000 && val < 60000) d_input = new Date((val - 25569) * 86400 * 1000);
+    else if (typeof val === "number" && val > 40000 && val < 60000)
+      d_input = new Date((val - 25569) * 86400 * 1000);
 
     const s = String(val === undefined || val === null ? "" : val).trim();
     if (code === "a") {
@@ -1696,6 +1734,31 @@ function applyJSFormat(val, code, dict = null) {
       }
       // Fallback
       return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
+    }
+    if (code === "p") {
+      if (!s && !d_input) return s;
+      let d = d_input;
+      if (!d || isNaN(d.getTime())) d = new Date(s);
+
+      if (isNaN(d.getTime())) {
+        const m = s.match(
+          /^(\d{2})[\/\-](\d{2})[\/\-](\d{4})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/,
+        );
+        if (m)
+          d = new Date(
+            `${m[3]}-${m[2]}-${m[1]}T${m[4] || "00"}:${m[5] || "00"}:${m[6] || "00"}`,
+          );
+      }
+      if (isNaN(d.getTime())) return s;
+
+      const opts = { day: "numeric", month: "short", year: "numeric" };
+      // If original string had time, include time
+      if (s.includes(":") || (d_input && d_input.getHours() + d_input.getMinutes() > 0)) {
+        opts.hour = "2-digit";
+        opts.minute = "2-digit";
+        opts.hour12 = false;
+      }
+      return d.toLocaleDateString("en-GB", opts).replace(",", "");
     }
     // Dictionary mapping (k and q)
     if ((code === "k" || code === "q") && dict) {
@@ -2102,6 +2165,133 @@ function buildSrcRow(existing, labelClass, pathClass) {
   `;
 }
 
+async function fetchAndRenderPages(btn) {
+  const row = btn.closest(".smart-src-row");
+  const pathInput = row.querySelector(".src-path-input");
+  const container = row.querySelector(".src-pages-container");
+  const path = pathInput.value.trim();
+
+  if (!path) {
+    toast("Please provide a Source URL or File Path first.", "error");
+    return;
+  }
+
+  const origHtml = btn.innerHTML;
+  btn.innerHTML = '<i data-lucide="loader-2" class="icon spin"></i>';
+  btn.disabled = true;
+  refreshIcons();
+
+  try {
+    let sheetNames = [];
+    if (path.startsWith("http")) {
+      sheetNames = await fetchExternalSheetNames(path);
+    } else {
+      sheetNames = await readLocalSheetNames(path);
+    }
+
+    if (!sheetNames || sheetNames.length === 0) {
+      container.innerHTML =
+        '<div style="color:var(--red);">No pages found. Validate path.</div>';
+    } else {
+      // Create checkboxes
+      container.innerHTML = sheetNames
+        .map(
+          (name) => `
+        <label style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px;">
+          <input type="checkbox" value="${escAttr(name)}" onchange="updateSrcPagesInput(this)" />
+          ${esc(name)}
+        </label>
+      `,
+        )
+        .join("");
+      // Reset the hidden input so initially it counts as "all" unless user checks some
+      row.querySelector(".src-pages-input").value = "";
+    }
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--red);">Error: ${esc(e.message)}</div>`;
+  } finally {
+    btn.innerHTML = origHtml;
+    btn.disabled = false;
+    refreshIcons();
+  }
+}
+
+function updateSrcPagesInput(cb) {
+  const row = cb.closest(".smart-src-row");
+  const container = row.querySelector(".src-pages-container");
+  const hiddenInput = row.querySelector(".src-pages-input");
+
+  const checked = Array.from(
+    container.querySelectorAll('input[type="checkbox"]:checked'),
+  ).map((el) => el.value);
+  hiddenInput.value = checked.join(",");
+}
+
+async function fetchExternalSheetNames(url) {
+  let fetchUrl = url;
+  let isGSheet = false;
+  let token = null;
+
+  if (url.includes("docs.google.com/spreadsheets")) {
+    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) {
+      const sheetId = match[1];
+      fetchUrl =
+        "https://www.googleapis.com/drive/v3/files/" +
+        sheetId +
+        "/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      isGSheet = true;
+      try {
+        token = await getGoogleAccessToken();
+      } catch (e) {}
+    }
+  }
+
+  await loadSheetJS();
+  let resp;
+  if (isGSheet && token) {
+    resp = await fetch(fetchUrl, {
+      headers: { Authorization: "Bearer " + token },
+    });
+  } else {
+    resp = await fetch(fetchUrl, { cache: "no-store" });
+  }
+  if (!resp.ok) throw new Error("Fetch failed");
+  const ab = await resp.arrayBuffer();
+  if (ab.byteLength < 5) return [];
+
+  let wb;
+  try {
+    wb = XLSX.read(new Uint8Array(ab), { type: "array" });
+  } catch (parseErr) {
+    const text = new TextDecoder().decode(ab);
+    wb = XLSX.read(text, { type: "string" });
+  }
+  return wb.SheetNames;
+}
+
+async function readLocalSheetNames(path) {
+  if (!STATE.folderHandle) throw new Error("Folder not linked");
+  const parts = path.replace(/\\/g, "/").split("/");
+  let target = STATE.folderHandle;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (parts[i]) {
+      target = await target.getDirectoryHandle(parts[i]).catch(() => null);
+      if (!target) throw new Error("Dir not found");
+    }
+  }
+  const fileHandle = await target
+    .getFileHandle(parts[parts.length - 1])
+    .catch(() => null);
+  if (!fileHandle) throw new Error("File not found");
+
+  const file = await fileHandle.getFile();
+  const ab = await file.arrayBuffer();
+  await loadSheetJS();
+  const wb = XLSX.read(new Uint8Array(ab), { type: "array" });
+  return wb.SheetNames;
+}
+
 function syncPathDropdown(sel) {
   const wrap = sel.closest(".src-path-wrap");
   const input = wrap.querySelector(".src-path-input");
@@ -2389,6 +2579,7 @@ async function fetchGoogleSheetCols() {
       const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
       const row = json && json[0] ? json[0] : [];
       let sheetColCount = 0;
+      const pageCols = [];
       for (const h of row) {
         const norm = String(h || "")
           .toLowerCase()
@@ -2398,9 +2589,14 @@ async function fetchGoogleSheetCols() {
           headers.push(norm);
           sheetColCount++;
         }
+        if (norm) pageCols.push(norm);
       }
       if (row.length > 0)
-        filesSeen.push({ name: `Page: ${name}`, count: row.length });
+        filesSeen.push({
+          name: "Page: " + name,
+          count: row.length,
+          columns: pageCols,
+        });
     }
 
     if (headers.length) {
@@ -2451,15 +2647,73 @@ function removeTemplateLink(idx) {
 
 function showDiscoveredCols(cols, filesSeen = []) {
   STATE.discoveredCols = cols;
+  STATE.discoveredFilesSeen = filesSeen;
+  // Initialize selectedTemplatePages if not set OR empty (to ensure explicit save)
+  if (!STATE.selectedTemplatePages || STATE.selectedTemplatePages.length === 0) {
+    STATE.selectedTemplatePages = filesSeen.map(f => {
+      let n = f.name;
+      if (n.startsWith("Page: ")) n = n.substring(6);
+      return n;
+    });
+  }
   document.querySelectorAll(".col-card").forEach((card) => {
     const src = card.querySelector(".tpl-col-src");
     refreshFmsDropdown(card, src ? src.value : "");
   });
   const area = document.getElementById("discoveredColsArea");
-  const filesHtml = filesSeen.length
-    ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">${filesSeen.map((f) => `<span style="font-size:11px;background:white;border:1px solid #a7f3d0;border-radius:10px;padding:2px 8px;color:var(--green)">📄 ${esc(f.name)} (${f.count} cols)</span>`).join("")}</div>`
+
+  // Compute visible columns based on selected pages
+  let visibleCols = cols;
+  if (
+    STATE.selectedTemplatePages.length > 0 &&
+    filesSeen.some((f) => f.columns)
+  ) {
+    const allowedSet = new Set();
+    filesSeen.forEach((f) => {
+      let cleanName = f.name;
+      if (cleanName.startsWith("Page: ")) cleanName = cleanName.substring(6);
+      if (STATE.selectedTemplatePages.includes(cleanName) && f.columns) {
+        f.columns.forEach((c) => allowedSet.add(c));
+      }
+    });
+    visibleCols = cols.filter((c) => allowedSet.has(c));
+  }
+
+  const pagesHtml = filesSeen.length
+    ? `<div style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:600;color:var(--text2)">Select Pages to Include:</span>
+          <span style="font-size:10px;color:var(--text3);font-style:italic">(uncheck pages you don't need)</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${filesSeen
+          .map((f) => {
+            let cleanName = f.name;
+            if (cleanName.startsWith("Page: "))
+              cleanName = cleanName.substring(6);
+            const isChecked = STATE.selectedTemplatePages.includes(cleanName);
+            return `<label style="display:flex;align-items:center;gap:4px;font-size:11px;background:white;border:1px solid ${isChecked ? "#a7f3d0" : "#e5e7eb"};border-radius:10px;padding:4px 10px;color:${isChecked ? "var(--green)" : "var(--text3)"};cursor:pointer;user-select:none;transition:all .15s">
+            <input type="checkbox" value="${escAttr(cleanName)}" ${isChecked ? "checked" : ""} onchange="toggleTemplatePage(this)" style="accent-color:var(--green)" />
+            📄 ${esc(f.name)} (${f.count} cols)
+          </label>`;
+          })
+          .join("")}</div>
+       </div>`
     : "";
-  area.innerHTML = `<div class="discovered-cols-wrap"><div class="discovered-header"><div class="discovered-title"><i data-lucide="check" class="icon"></i> ${cols.length} Column(s) Found</div><button class="btn btn-ghost btn-sm" onclick="autoPopulateFromCols()">Auto-add all →</button></div>${filesHtml}<div class="discovered-hint">Click a column chip to add it as an output column</div><div class="folder-col-chips">${cols.map((c) => `<div class="col-chip" onclick="addTplColumnFromName('${escAttr(c)}')" title="Add as output column">+ ${esc(c)}</div>`).join("")}</div></div>`;
+  area.innerHTML = `<div class="discovered-cols-wrap"><div class="discovered-header"><div class="discovered-title"><i data-lucide="check" class="icon"></i> ${visibleCols.length} Column(s) Found</div><button class="btn btn-ghost btn-sm" onclick="autoPopulateFromCols()">Auto-add all \u2192</button></div>${pagesHtml}<div class="discovered-hint">Click a column chip to add it as an output column</div><div class="folder-col-chips">${visibleCols.map((c) => `<div class="col-chip" onclick="addTplColumnFromName('${escAttr(c)}')" title="Add as output column">+ ${esc(c)}</div>`).join("")}</div></div>`;
+}
+
+function toggleTemplatePage(cb) {
+  const allCheckboxes = document.querySelectorAll(
+    '#discoveredColsArea input[type="checkbox"]',
+  );
+  const checked = Array.from(allCheckboxes)
+    .filter((el) => el.checked)
+    .map((el) => el.value);
+  
+  STATE.selectedTemplatePages = checked;
+  // Re-render with updated page selection
+  showDiscoveredCols(STATE.discoveredCols, STATE.discoveredFilesSeen || []);
+  refreshIcons();
 }
 
 function autoPopulateFromCols() {
@@ -3093,7 +3347,13 @@ function renderMoreRows() {
 
 function formatTableValue(val, colName) {
   if (val === null || val === undefined) return "";
-  if (val instanceof Date || (typeof val === "number" && val > 40000 && val < 60000 && String(colName).toLowerCase().includes("date"))) {
+  if (
+    val instanceof Date ||
+    (typeof val === "number" &&
+      val > 40000 &&
+      val < 60000 &&
+      String(colName).toLowerCase().includes("date"))
+  ) {
     try {
       const d = new Date(val);
       if (!isNaN(d.getTime())) {
@@ -4286,10 +4546,14 @@ async function mergeGroupData(group, template, incremental, targetName = "") {
 
   for (const src of group.sources) {
     let rows = [];
+    const pagesToInclude =
+      template.pages && template.pages.length > 0
+        ? template.pages.join(",")
+        : src.pages || "";
     if (src.path.startsWith("http")) {
-      rows = await fetchExternalData(src.path, template);
+      rows = await fetchExternalData(src.path, template, pagesToInclude);
     } else {
-      rows = await readLocalData(src.path, template);
+      rows = await readLocalData(src.path, template, pagesToInclude);
     }
     if (rows && rows.length > 0) {
       metrics.loaded += rows.length;
@@ -4376,7 +4640,7 @@ async function mergeGroupData(group, template, incremental, targetName = "") {
 }
 // fetchExternalData: unified implementation exists later in file
 
-async function readLocalData(path, template) {
+async function readLocalData(path, template, pagesToInclude = "") {
   if (!STATE.folderHandle) return [];
   try {
     const parts = path.replace(/\\/g, "/").split("/");
@@ -4404,7 +4668,20 @@ async function readLocalData(path, template) {
     const wb = XLSX.read(new Uint8Array(ab), { type: "array" });
 
     const combined = [];
+    const allowedPages = pagesToInclude
+      ? pagesToInclude
+          .split(",")
+          .map((p) => p.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+
     for (const name of wb.SheetNames) {
+      if (
+        allowedPages.length > 0 &&
+        !allowedPages.includes(name.trim().toLowerCase())
+      ) {
+        continue;
+      }
       const ws = wb.Sheets[name];
       const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
       if (!json || json.length < 2) {
@@ -4632,6 +4909,7 @@ async function runDirectMerge() {
           .map((el) => ({
             label: el.querySelector(".ext-file-label")?.value.trim() || "",
             path: el.querySelector(".ext-file-path")?.value.trim() || "",
+            pages: el.querySelector(".src-pages-input")?.value.trim() || "",
           }))
           .filter((s) => s.path);
       }
@@ -4745,6 +5023,7 @@ async function runDirectMerge() {
         wch: Math.max(c.name.length + 4, 15),
       }));
       ws["!cols"] = colWidths;
+      applyCellStyles(ws, template);
 
       XLSX.utils.book_append_sheet(wb, ws, group.name.substring(0, 31));
 
@@ -4815,7 +5094,7 @@ async function runDirectMerge() {
 
 // (Duplicate mergeGroupData removed)
 
-async function fetchExternalData(url, template) {
+async function fetchExternalData(url, template, pagesToInclude = "") {
   let fetchUrl = url;
   let isGSheet = false;
   let token = null;
@@ -4869,7 +5148,20 @@ async function fetchExternalData(url, template) {
     }
 
     const combined = [];
+    const allowedPages = pagesToInclude
+      ? pagesToInclude
+          .split(",")
+          .map((p) => p.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+
     for (const sheetName of wb.SheetNames) {
+      if (
+        allowedPages.length > 0 &&
+        !allowedPages.includes(sheetName.trim().toLowerCase())
+      ) {
+        continue;
+      }
       const ws = wb.Sheets[sheetName];
       const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
