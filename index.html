@@ -137,9 +137,9 @@
               overflow: hidden;
               text-overflow: ellipsis;
             "
-            title="leadsmergepro@tansihondahiring.iam.gserviceaccount.com"
+            title="leadpermission@mergerpro.iam.gserviceaccount.com"
           >
-            leadsmergepro@...
+            leadpermission@...
           </span>
           <button
             onclick="copyServiceAccountEmail()"
@@ -268,7 +268,19 @@
             <div class="qa-desc">Multi-tab Excel export</div>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="margin-top: 24px;">
+          <div class="card-title" style="display: flex; align-items: center; justify-content: space-between;">
+            Today's Lead Analytics
+            <span id="analyticsDate" style="font-size: 11px; text-transform: none; opacity: 0.7;"></span>
+          </div>
+          <div id="analyticsDashboard" class="analytics-dashboard">
+            <div class="empty-state" style="padding: 30px;">
+              <p>No runs today yet. Detailed campaign/source analytics will appear here after a merge.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 24px;">
           <div class="card-title">How It Works</div>
           <div class="how-steps">
             <div class="hw-step">
@@ -1430,6 +1442,24 @@
     </div>
 
     <div class="toast" id="toast"></div>
+
+    <!-- DUPLICATION HISTORY MODAL -->
+    <div class="overlay" id="duplicationOverlay" onclick="closeDuplicationModal()"></div>
+    <div class="panel panel-wide" id="duplicationPanel">
+      <div class="panel-header">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <div class="lc-icon blue"><i data-lucide="copy"></i></div>
+          <div>
+            <h2 id="duplicationTitle">Duplication History</h2>
+            <div id="duplicationSub" style="font-size: 11px; color: var(--text3)">Showing rows filtered during merge</div>
+          </div>
+        </div>
+        <button class="btn-icon" onclick="closeDuplicationModal()"><i data-lucide="x"></i></button>
+      </div>
+      <div class="panel-body">
+        <div id="duplicationContent"></div>
+      </div>
+    </div>
 
     <script src="script.js"></script>
   </body>

@@ -826,6 +826,7 @@ async function downloadOutputFile(fname) {
 
 // ─── HOME ──────────────────────────────────────────────────────────────────
 function refreshHome() {
+  refreshAnalyticsDashboard();
   document.getElementById("statTemplates").textContent = STATE.templates.length;
   document.getElementById("statGroups").textContent = STATE.groups.length;
   document.getElementById("statCampaigns").textContent = STATE.campaigns.length;
@@ -2912,6 +2913,7 @@ function renderHierarchicalFileSelector(files, query = "") {
         </div>
       </div>
       <div class="tree-file-actions">
+        <button class="btn-icon" onclick="event.stopPropagation();displayDuplicationHistory('${escAttr(f.name)}')" title="View Duplicates"><i data-lucide="copy" class="icon"></i></button>
         <button class="btn-icon" onclick="event.stopPropagation();downloadOutputFile('${escAttr(f.name)}')" title="Download"><i data-lucide="download" class="icon"></i></button>
         <button class="btn-icon danger" onclick="event.stopPropagation();deleteOutputFile('${escAttr(f.name)}')" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
       </div>
@@ -3277,9 +3279,14 @@ function switchSheet(btn, idx) {
           <span class="row-count-badge" id="activeSheetRowCount">0 rows</span>
           <span style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px">from ${esc(STATE._activeOutputName || "file")} ${isBaselineFile ? "(Baseline)" : ""}</span>
         </div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:12px;align-items:center;">
           <button class="expand-btn" onclick="toggleExpandTable()"><i data-lucide="maximize" id="expandIcon" class="icon"></i> <span id="expandText">Expand</span></button>
           <button class="btn btn-ghost btn-sm" onclick="copyTableToClipboard('viewerTable')"><i data-lucide="copy" class="icon"></i> Copy</button>
+          <button class="btn btn-ghost btn-sm" onclick="displayDuplicationHistory(STATE._activeOutputName)" style="border-color:var(--blue);color:var(--blue);"><i data-lucide="copy" class="icon"></i> Duplicates</button>
+          <div style="position:relative;display:flex;align-items:center;background:var(--surface2);border:1.5px solid var(--blue);border-radius:8px;padding:2px 4px;">
+            <i data-lucide="search" class="icon" style="position:absolute;left:8px;width:12px;height:12px;color:var(--blue);"></i>
+            <input type="number" id="jumpToRowInput" class="input" placeholder="Search Row #" style="width:100px;padding-left:26px;font-size:11px;height:24px;background:transparent;border:none;color:var(--text1);" onkeyup="if(event.key==='Enter')jumpToRow(this.value)">
+          </div>
           ${
             !isBaselineFile
               ? `
@@ -3308,7 +3315,8 @@ function switchSheet(btn, idx) {
   const countBadge = document.getElementById("activeSheetRowCount");
   if (countBadge) countBadge.textContent = `${rows.length} rows`;
 
-  document.getElementById("tableHead").innerHTML = headers
+  let headHtml = `<th style="width:40px;text-align:center;color:var(--text3);background:var(--surface2);position:sticky;left:0;z-index:10;user-select:none;pointer-events:none;">#</th>`;
+  headHtml += headers
     .map((h) => {
       const activeTpl = STATE.templates.find(
         (t) => t.name === STATE._activeTemplateName,
@@ -3318,6 +3326,7 @@ function switchSheet(btn, idx) {
       return `<th class="${alignClass}">${esc(String(h))}</th>`;
     })
     .join("");
+  document.getElementById("tableHead").innerHTML = headHtml;
 
   renderMoreRows();
 }
@@ -3346,10 +3355,11 @@ function renderMoreRows() {
   body.insertAdjacentHTML(
     "beforeend",
     chunk
-      .map((row) => {
+      .map((row, i) => {
+        const rowIdx = start + i + 1; // 1-based indexing for data rows
         const cellsHtml = headers
-          .map((h, i) => {
-            const rawVal = row[i] !== undefined ? row[i] : "";
+          .map((h, j) => {
+            const rawVal = row[j] !== undefined ? row[j] : "";
             const formatted = formatTableValue(rawVal, String(h));
             const activeTpl = STATE.templates.find(
               (t) => t.name === STATE._activeTemplateName,
@@ -3366,7 +3376,10 @@ function renderMoreRows() {
             return `<td class="${alignClass} ${isDate ? "date-col" : ""} ${isNumeric ? "number-cell" : ""}">${esc(formatted)}</td>`;
           })
           .join("");
-        return `<tr onclick="this.querySelectorAll('td').forEach(t=>t.style.whiteSpace=t.style.whiteSpace==='normal'?'nowrap':'normal')">${cellsHtml}</tr>`;
+        return `<tr id="preview-row-${rowIdx}" onclick="this.querySelectorAll('td').forEach(t=>t.style.whiteSpace=t.style.whiteSpace==='normal'?'nowrap':'normal')">
+          <td style="width:40px;text-align:center;color:var(--text3);background:var(--surface2);position:sticky;left:0;font-size:10px;font-weight:700;user-select:none;pointer-events:none;border-right:1px solid var(--border);">${rowIdx}</td>
+          ${cellsHtml}
+        </tr>`;
       })
       .join(""),
   );
@@ -4575,6 +4588,7 @@ function formatDateTime(ms) {
 async function mergeGroupData(group, template, incremental, targetName = "") {
   let allRows = [];
   let metrics = { loaded: 0, deduped: 0, baseline: 0 };
+  let duplicatedRows = [];
 
   for (const src of group.sources) {
     let rows = [];
@@ -4589,7 +4603,12 @@ async function mergeGroupData(group, template, incremental, targetName = "") {
     }
     if (rows && rows.length > 0) {
       metrics.loaded += rows.length;
-      allRows.push(...rows);
+      // Track original source and row number (header is row 1, data starts row 2)
+      allRows.push(...rows.map((r, i) => ({
+        ...r,
+        __dmp_src: src.label || src.path,
+        __dmp_idx: i + 2
+      })));
     }
   }
 
@@ -4650,25 +4669,34 @@ async function mergeGroupData(group, template, incremental, targetName = "") {
           return alt ? String(r[alt]).trim().toLowerCase() : "";
         })
         .join("|");
-    const seen = new Set();
+    const seenMap = new Map();
     const unique = [];
     for (const r of allRows) {
       const key = getRowKey(r);
       const isEmpty = !key || key.replace(/\|/g, "").trim() === "";
       if (isEmpty) {
         unique.push(r);
-      } else if (!seen.has(key)) {
-        seen.add(key);
+      } else if (!seenMap.has(key)) {
+        seenMap.set(key, { src: r.__dmp_src, idx: r.__dmp_idx });
         unique.push(r);
       } else {
         metrics.deduped++;
+        const primary = seenMap.get(key);
+        duplicatedRows.push({
+          source: r.__dmp_src,
+          row_index: r.__dmp_idx,
+          primary_source: primary.src,
+          primary_index: primary.idx,
+          row_data: r, // Keep the full object for formatting
+          key: key
+        });
       }
     }
     allRows = unique;
   }
   // If dedupCols is empty — keep ALL rows, no dedup
 
-  return { rows: allRows, metrics };
+  return { rows: allRows, metrics, duplicatedRows };
 }
 // fetchExternalData: unified implementation exists later in file
 
@@ -5046,11 +5074,22 @@ async function runDirectMerge() {
         config.name,
       );
       const rows = result.rows;
+      group.rows = rows; // Store for analytics
+      group.duplicatedRows = result.duplicatedRows; // Store for history
+      
       totalLoaded += result.metrics.loaded;
       totalDeduped += result.metrics.deduped;
       totalBaseline += result.metrics.baseline;
 
-      const ws = XLSX.utils.json_to_sheet(rows);
+      // Clean up internal metadata before Excel export
+      const exportRows = rows.map((r) => {
+        const clean = { ...r };
+        delete clean.__dmp_src;
+        delete clean.__dmp_idx;
+        return clean;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(exportRows);
       const colWidths = template.columns.map((c) => ({
         wch: Math.max(c.name.length + 4, 15),
       }));
@@ -5109,6 +5148,17 @@ async function runDirectMerge() {
 
     STATE.runs++;
     save();
+    
+    // Save Duplication History
+    const allDupes = config.groups.flatMap(g => (g.duplicatedRows || []).map(d => ({ ...d, sheetName: g.name })));
+    if (allDupes.length > 0) {
+      const dupFilename = filename.replace(".xlsx", "_duplicates.json");
+      writeToLinkedFolder("output", dupFilename, allDupes);
+    }
+
+    // Update Analytics
+    updateDailyAnalytics(config.name, config.groups);
+
     refreshHome();
     resetRunForm();
     statusText.textContent = "";
@@ -5484,7 +5534,228 @@ async function generateFinalReport() {
   }
 }
 
-// ─── INIT ───────────────────────────────────────────────────────────────────
+// ─── ANALYTICS & DUPLICATION HISTORY ───
+function updateDailyAnalytics(campaignName, groups) {
+  const today = new Date().toISOString().split("T")[0];
+  let analytics = JSON.parse(localStorage.getItem("dmp_analytics") || "{}");
+  
+  if (!analytics[today]) analytics[today] = {};
+  if (!analytics[today][campaignName]) analytics[today][campaignName] = {};
+  
+  groups.forEach(g => {
+    if (!analytics[today][campaignName][g.name]) analytics[today][campaignName][g.name] = 0;
+    analytics[today][campaignName][g.name] += (g.rows ? g.rows.length : 0);
+  });
+  
+  localStorage.setItem("dmp_analytics", JSON.stringify(analytics));
+  saveAnalyticsToFile(analytics);
+  refreshAnalyticsDashboard();
+}
+
+async function saveAnalyticsToFile(analytics) {
+  if (!STATE.folderHandle) return;
+  try {
+    const lines = ["DataMerge Pro - Lead Analytics", "Generated: " + new Date().toLocaleString(), ""];
+    for (const [date, campaigns] of Object.entries(analytics)) {
+      lines.push(`--- DATE: ${date} ---`);
+      for (const [camp, groups] of Object.entries(campaigns)) {
+        lines.push(`Campaign: ${camp}`);
+        for (const [group, count] of Object.entries(groups)) {
+          lines.push(`  - ${group}: ${count} leads`);
+        }
+      }
+      lines.push("");
+    }
+    const fileHandle = await STATE.folderHandle.getFileHandle("leads_analytics.txt", { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(lines.join("\n"));
+    await writable.close();
+  } catch (e) {
+    console.warn("Could not save analytics file:", e);
+  }
+}
+
+function refreshAnalyticsDashboard() {
+  const today = new Date().toISOString().split("T")[0];
+  const analytics = JSON.parse(localStorage.getItem("dmp_analytics") || "{}");
+  const dash = document.getElementById("analyticsDashboard");
+  const dateEl = document.getElementById("analyticsDate");
+  if (!dash || !dateEl) return;
+
+  dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  
+  const todayData = analytics[today];
+  if (!todayData) {
+    dash.innerHTML = `<div class="empty-state" style="padding: 30px;"><p>No runs today yet. Detailed campaign/source analytics will appear here after a merge.</p></div>`;
+    return;
+  }
+
+  let html = `<table class="input-table" style="width:100%; border-collapse: collapse; font-size:12px;">
+    <thead>
+      <tr style="background: var(--surface2); border-bottom: 1px solid var(--border);">
+        <th style="padding:10px; text-align:left;">Campaign</th>
+        <th style="padding:10px; text-align:left;">Source Group</th>
+        <th style="padding:10px; text-align:right;">Leads Today</th>
+      </tr>
+    </thead>
+    <tbody>`;
+  
+  for (const [camp, groups] of Object.entries(todayData)) {
+    for (const [group, count] of Object.entries(groups)) {
+      html += `<tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding:10px;"><strong>${esc(camp)}</strong></td>
+        <td style="padding:10px;">${esc(group)}</td>
+        <td style="padding:10px; text-align:right; font-weight:700; color:var(--blue);">${count}</td>
+      </tr>`;
+    }
+  }
+  html += `</tbody></table>`;
+  dash.innerHTML = html;
+}
+
+async function displayDuplicationHistory(filename) {
+  if (!STATE.folderHandle) return;
+  const dupFilename = filename.replace(".xlsx", "_duplicates.json");
+  try {
+    const outDir = await STATE.folderHandle.getDirectoryHandle("output");
+    const fileHandle = await outDir.getFileHandle(dupFilename);
+    const file = await fileHandle.getFile();
+    const data = JSON.parse(await file.text());
+
+    const content = document.getElementById("duplicationContent");
+    const title = document.getElementById("duplicationTitle");
+    title.textContent = "Duplication History: " + filename;
+
+    if (data.length === 0) {
+      content.innerHTML = `<div class="empty-state"><p>No duplicates found in this run.</p></div>`;
+    } else {
+      // Group by sheetName
+      const groups = {};
+      data.forEach(d => {
+        const s = d.sheetName || "Default";
+        if (!groups[s]) groups[s] = [];
+        groups[s].push(d);
+      });
+
+      let html = `<div style="margin-bottom:15px; font-size:12px; color:var(--text2);">
+        Found <strong>${data.length}</strong> duplicated rows across <strong>${Object.keys(groups).length}</strong> sheets.
+      </div>`;
+
+      for (const [sname, items] of Object.entries(groups)) {
+        html += `<div style="margin-top:20px; margin-bottom:10px; padding:8px 12px; background:var(--surface3); border-radius:8px; font-weight:700; color:var(--blue); display:flex; align-items:center; gap:8px;">
+          <i data-lucide="layers" style="width:14px;height:14px;"></i> Sheet: ${esc(sname)}
+          <span style="margin-left:auto; font-size:10px; font-weight:500; opacity:0.7;">${items.length} duplicates</span>
+        </div>
+        <table class="input-table" style="width:100%; border-collapse: collapse; font-size:11px; margin-bottom:24px;">
+          <thead>
+            <tr style="background: var(--surface2); border-bottom: 2px solid var(--border);">
+              <th style="padding:10px; text-align:left; width:150px;">Removed Row</th>
+              <th style="padding:10px; text-align:left; width:150px;">Original Match</th>
+              <th style="padding:10px; text-align:left;">Duplicated Lead Details</th>
+            </tr>
+          </thead>
+          <tbody>`;
+        
+        items.forEach((d) => {
+          const rowData = d.row_data || {};
+          const displayData = Object.entries(rowData)
+            .filter(([k]) => !k.startsWith("__dmp"))
+            .map(([k, v]) => `<div><span style="color:var(--text3); font-weight:600;">${esc(k)}:</span> ${esc(String(v))}</div>`)
+            .join("");
+
+          html += `<tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding:10px; vertical-align:top; border-right:1px solid var(--border);">
+              <div style="font-weight:700; color:var(--red);">Row ${d.row_index}</div>
+              <div style="font-size:10px; color:var(--text3);">${esc(d.source)}</div>
+            </td>
+            <td style="padding:10px; vertical-align:top; border-right:1px solid var(--border);">
+              <div style="font-weight:700; color:var(--green);">Existing Row ${d.primary_index}</div>
+              <div style="font-size:10px; color:var(--text3);">${esc(d.primary_source)}</div>
+            </td>
+            <td style="padding:10px; vertical-align:top;">
+              <div style="max-height:100px; overflow-y:auto; padding:5px; background:var(--surface2); border-radius:4px; line-height:1.4;">
+                ${displayData}
+              </div>
+            </td>
+          </tr>`;
+        });
+        html += `</tbody></table>`;
+      }
+      content.innerHTML = html;
+    }
+
+    document.getElementById("duplicationOverlay").classList.add("show");
+    document.getElementById("duplicationPanel").classList.add("open");
+    refreshIcons();
+  } catch (e) {
+    console.error(e);
+    toast("No duplication history found for this file", "info");
+  }
+}
+
+function closeDuplicationModal() {
+  document.getElementById("duplicationOverlay").classList.remove("show");
+  document.getElementById("duplicationPanel").classList.remove("open");
+}
+
+// ─── ROW SEARCH ───
+// ─── ROW SEARCH ───
+// ─── ROW SEARCH ───
+async function jumpToRow(rowNum) {
+  const num = parseInt(rowNum);
+  if (isNaN(num) || num < 1) {
+    toast("Invalid row number", "error");
+    return;
+  }
+  const rows = STATE._currentRows || [];
+  const maxRow = rows.length;
+  if (num > maxRow) {
+    toast(`Row ${num} not found (Total data rows: ${maxRow})`, "info");
+    return;
+  }
+
+  // Ensure row is rendered (Lazy loading)
+  // We need to loop until the desired row number is within the rendered count
+  let safety = 0;
+  while (STATE._renderedRowCount < num && STATE._renderedRowCount < rows.length && safety < 100) {
+    renderMoreRows();
+    safety++;
+  }
+
+  // Robust jump with retries
+  const attemptJump = (attempts = 0) => {
+    const el = document.getElementById(`preview-row-${num}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'auto', block: 'center' });
+      
+      // Visual feedback: Strong Green High-Visibility Flash
+      // Use !important style to override any potential cell backgrounds
+      const cells = el.querySelectorAll('td');
+      cells.forEach(td => {
+        td.style.setProperty('background-color', 'rgba(16, 185, 129, 0.4)', 'important');
+        td.style.setProperty('transition', 'none', 'important');
+      });
+      
+      setTimeout(() => {
+        cells.forEach(td => {
+          td.style.setProperty('transition', 'background-color 2s ease', 'important');
+          td.style.setProperty('background-color', '', '');
+        });
+      }, 3000);
+      
+      const input = document.getElementById("jumpToRowInput");
+      if(input) input.value = "";
+    } else if (attempts < 5) {
+      setTimeout(() => attemptJump(attempts + 1), 100);
+    } else {
+      toast(`Could not focus row ${num}`, "error");
+    }
+  };
+
+  attemptJump();
+}
+
+// ─── INIT ───
 document.addEventListener("DOMContentLoaded", () => {
   loadEnv(); // Load secrets from .env
   navigate(STATE.lastPage); // Restore last active page
