@@ -66,6 +66,14 @@
           <span class="ni"><i data-lucide="target" class="icon"></i></span>
           Campaigns
         </button>
+        <button
+          class="nav-item"
+          data-page="reports"
+          onclick="navigate('reports')"
+        >
+          <span class="ni"><i data-lucide="file-text" class="icon"></i></span>
+          Reports
+        </button>
         <div class="nav-sep"></div>
         <button
           class="nav-item"
@@ -95,7 +103,11 @@
       <div class="sidebar-bottom">
         <div class="folder-status-row">
           <div class="dot red" id="folderDot"></div>
-          <span class="folder-name-label disconnected" id="folderNameEl"
+          <span
+            class="folder-name-label disconnected"
+            id="folderNameEl"
+            onclick="linkFolder()"
+            style="cursor: pointer"
             >No folder linked</span
           >
           <button
@@ -260,8 +272,20 @@
           <div class="card-title">How It Works</div>
           <div class="how-steps">
             <div class="hw-step">
-              <div class="hw-num">1</div>
-              <div class="hw-text">Link project folder</div>
+              <div
+                class="hw-num"
+                onclick="linkFolder()"
+                style="cursor: pointer"
+              >
+                1
+              </div>
+              <div
+                class="hw-text"
+                onclick="linkFolder()"
+                style="cursor: pointer"
+              >
+                Link project folder
+              </div>
             </div>
             <div class="hw-arr">→</div>
             <div class="hw-step">
@@ -1037,6 +1061,65 @@
               </button>
             </div>
           </div>
+        </div>
+      </div>
+      <!-- ══ REPORTS ══ -->
+      <div class="page" id="page-reports">
+        <div class="page-header">
+          <h1>Campaign Reports</h1>
+          <p>Generate summary reports from raw data files</p>
+        </div>
+
+        <div class="card" style="margin-bottom: 20px">
+          <div class="card-title">1. Select Data Files</div>
+          <div class="toolbar">
+            <button
+              class="btn btn-ghost btn-sm"
+              onclick="refreshReportsFiles()"
+            >
+              <i data-lucide="refresh-cw" class="icon"></i> Refresh Input Folder
+            </button>
+          </div>
+          <div
+            id="reportsFileList"
+            class="card-list"
+            style="max-height: 250px; overflow-y: auto"
+          ></div>
+        </div>
+
+        <div id="reportsStep2" style="display: none">
+          <div class="card" style="margin-bottom: 20px">
+            <div class="card-title">2. Order Campaigns</div>
+            <p
+              style="font-size: 12px; color: var(--text3); margin-bottom: 15px"
+            >
+              Drag to reorder campaigns. This determines the column order in the
+              report.
+            </p>
+            <div id="campaignOrderList" class="card-list"></div>
+            <div class="form-actions">
+              <button class="btn btn-primary" onclick="generateFinalReport()">
+                <i data-lucide="file-spreadsheet" class="icon"></i> Generate
+                Report
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          id="reportsOutput"
+          style="margin-top: 20px; display: none"
+          class="card"
+        >
+          <div class="card-title">Result</div>
+          <div id="reportsResultMsg" style="margin-bottom: 10px"></div>
+          <button
+            class="btn btn-success"
+            id="btnDownloadReport"
+            style="display: none"
+          >
+            <i data-lucide="download" class="icon"></i> Download Report
+          </button>
         </div>
       </div>
     </main>

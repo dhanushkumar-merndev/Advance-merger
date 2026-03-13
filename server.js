@@ -59,6 +59,56 @@ const server = http.createServer((req, res) => {
     });
   };
 
+  if (req.url.startsWith("/api/run-report")) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const files = url.searchParams.get("files"); // comma separated
+    const listOnly = url.searchParams.get("list");
+    const order = url.searchParams.get("order");
+    const out = url.searchParams.get("out");
+
+    if (!files) {
+      res.writeHead(400);
+      res.end("No files provided");
+      return;
+    }
+
+    let cmd = `python report.py ${files.split(",").map(f => `"${f.trim()}"`).join(" ")}`;
+    if (listOnly) cmd += " --list";
+    if (order) cmd += ` --order "${order}"`;
+    if (out) cmd += ` --out "${out}"`;
+
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message, stderr }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ output: stdout.trim() }));
+    });
+    return;
+  }
+
+  if (req.url.startsWith("/api/list-input")) {
+    const inputDir = path.join(__dirname, "input");
+    fs.readdir(inputDir, { withFileTypes: true }, (err, files) => {
+      if (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+      const results = files
+        .filter((f) => f.isFile())
+        .map((f) => {
+          const stats = fs.statSync(path.join(inputDir, f.name));
+          return { name: f.name, size: stats.size };
+        });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(results));
+    });
+    return;
+  }
+
   serveFile(filePath);
 });
 

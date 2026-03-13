@@ -406,7 +406,12 @@ body {
   justify-content: space-between;
   box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
-  cursor: default;
+  cursor: pointer;
+}
+.list-card.active {
+  border-color: var(--blue-border);
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 1px var(--blue-border);
 }
 .list-card:hover {
   border-color: var(--blue-border);
@@ -458,6 +463,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 4px; /* Space for hover effects */
 }
 .empty-state {
   text-align: center;
@@ -2676,6 +2682,43 @@ select.input {
 }
 .spin {
   animation: spin 1s linear infinite;
+}
+.campaign-order-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: white;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  cursor: grab;
+  transition: all 0.2s;
+  user-select: none;
+}
+.campaign-order-item:hover {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+.campaign-order-item:active {
+  cursor: grabbing;
+}
+.campaign-order-item .drag-handle {
+  color: var(--text3);
+  display: flex;
+  align-items: center;
+}
+.campaign-order-item .campaign-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 13px;
+}
+.campaign-order-item .campaign-index {
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--surface2);
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: var(--text3);
 }
 @keyframes spin {
   to {

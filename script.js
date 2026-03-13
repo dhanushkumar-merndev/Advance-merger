@@ -192,6 +192,11 @@ const STATE = {
   previewMode: "template",
   viewerQuery: "",
   _activeTemplateName: null,
+  reports: {
+    selectedFiles: [],
+    campaigns: [],
+    ordering: [], // indices
+  },
   lastPage: localStorage.getItem("dmp_last_page") || "home",
 };
 
@@ -267,6 +272,7 @@ async function navigate(page) {
     "template",
     "sources",
     "campaigns",
+    "reports",
     "preview",
     "viewer",
     "settings",
@@ -295,6 +301,7 @@ async function navigate(page) {
   if (page === "template") renderTemplateList();
   if (page === "sources") renderGroupList();
   if (page === "campaigns") renderCampaignList();
+  if (page === "reports") refreshReportsFiles();
   if (page === "run") await refreshRunPage();
   if (page === "preview") {
     STATE.previewMode = "template";
@@ -1619,13 +1626,31 @@ async function exportCampaignExcel(campIdx) {
 function applyCellStyles(ws, template) {
   if (!ws || !template) return;
   const range = XLSX.utils.decode_range(ws["!ref"]);
-  
+
   template.columns.forEach((col, colIdx) => {
     const fmt = (col.fmt || "").toLowerCase();
     let align = null;
-    if (fmt.includes(" l ") || fmt.startsWith("l ") || fmt.endsWith(" l") || fmt === "l") align = "left";
-    if (fmt.includes(" r ") || fmt.startsWith("r ") || fmt.endsWith(" r") || fmt === "r") align = "right";
-    if (fmt.includes(" z ") || fmt.startsWith("z ") || fmt.endsWith(" z") || fmt === "z") align = "center";
+    if (
+      fmt.includes(" l ") ||
+      fmt.startsWith("l ") ||
+      fmt.endsWith(" l") ||
+      fmt === "l"
+    )
+      align = "left";
+    if (
+      fmt.includes(" r ") ||
+      fmt.startsWith("r ") ||
+      fmt.endsWith(" r") ||
+      fmt === "r"
+    )
+      align = "right";
+    if (
+      fmt.includes(" z ") ||
+      fmt.startsWith("z ") ||
+      fmt.endsWith(" z") ||
+      fmt === "z"
+    )
+      align = "center";
 
     if (align) {
       for (let R = range.s.r; R <= range.e.r; ++R) {
@@ -1753,7 +1778,10 @@ function applyJSFormat(val, code, dict = null) {
 
       const opts = { day: "numeric", month: "short", year: "numeric" };
       // If original string had time, include time
-      if (s.includes(":") || (d_input && d_input.getHours() + d_input.getMinutes() > 0)) {
+      if (
+        s.includes(":") ||
+        (d_input && d_input.getHours() + d_input.getMinutes() > 0)
+      ) {
         opts.hour = "2-digit";
         opts.minute = "2-digit";
         opts.hour12 = false;
@@ -2649,8 +2677,11 @@ function showDiscoveredCols(cols, filesSeen = []) {
   STATE.discoveredCols = cols;
   STATE.discoveredFilesSeen = filesSeen;
   // Initialize selectedTemplatePages if not set OR empty (to ensure explicit save)
-  if (!STATE.selectedTemplatePages || STATE.selectedTemplatePages.length === 0) {
-    STATE.selectedTemplatePages = filesSeen.map(f => {
+  if (
+    !STATE.selectedTemplatePages ||
+    STATE.selectedTemplatePages.length === 0
+  ) {
+    STATE.selectedTemplatePages = filesSeen.map((f) => {
       let n = f.name;
       if (n.startsWith("Page: ")) n = n.substring(6);
       return n;
@@ -2709,7 +2740,7 @@ function toggleTemplatePage(cb) {
   const checked = Array.from(allCheckboxes)
     .filter((el) => el.checked)
     .map((el) => el.value);
-  
+
   STATE.selectedTemplatePages = checked;
   // Re-render with updated page selection
   showDiscoveredCols(STATE.discoveredCols, STATE.discoveredFilesSeen || []);
@@ -5230,6 +5261,226 @@ async function addOutputToInput(filename, isBaseline) {
     refreshInputPage();
   } catch (e) {
     toast("Add failed: " + e.message, "error");
+  }
+}
+
+// ─── HELPERS ────────────────────────────────────────────────────────────────
+async function listFolderFiles(subfolder) {
+  if (!STATE.folderHandle) return [];
+  try {
+    const dirHandle = await STATE.folderHandle.getDirectoryHandle(subfolder);
+    const files = [];
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind === "file") {
+        const file = await entry.getFile();
+        files.push({ name: entry.name, size: file.size });
+      }
+    }
+    return files;
+  } catch (e) {
+    console.error("Error listing folder:", e);
+    return [];
+  }
+}
+
+// ─── REPORTS ───────────────────────────────────────────────────────────────
+async function refreshReportsFiles() {
+  let files = [];
+  if (!STATE.folderHandle) {
+    try {
+      const res = await fetch("/api/list-input");
+      files = await res.json();
+    } catch (e) {
+      document.getElementById("reportsFileList").innerHTML =
+        '<div class="empty-state" style="padding:40px"><strong>No folder linked</strong><p style="margin-bottom:15px;color:var(--text3)">Link your project folder or add files to input/ folder.</p><button class="btn btn-primary" onclick="linkFolder()"><i data-lucide="link" class="icon"></i> Connect Project Folder</button></div>';
+      refreshIcons();
+      return;
+    }
+  } else {
+    files = await listFolderFiles("input");
+  }
+  STATE._inputFiles = files; // Sync for consistency
+  const list = document.getElementById("reportsFileList");
+  if (!files.length) {
+    list.innerHTML =
+      '<div class="empty-state">No files found in input/ folder.</div>';
+    return;
+  }
+
+  list.innerHTML = files
+    .map((f) => {
+      const isSelected = STATE.reports.selectedFiles.includes(f.name);
+      return `
+      <div class="list-card ${isSelected ? "active" : ""}" onclick="toggleReportFile('${escAttr(f.name)}')">
+        <div class="lc-left">
+          <div class="lc-icon ${f.name.endsWith(".csv") ? "blue" : "green"}">
+            <i data-lucide="file" class="icon"></i>
+          </div>
+          <div>
+            <div class="lc-title">${esc(f.name)}</div>
+            <div class="lc-sub">${(f.size / 1024).toFixed(1)} KB</div>
+          </div>
+        </div>
+        <div class="lc-actions">
+           <i data-lucide="${isSelected ? "check-circle" : "circle"}" class="icon ${isSelected ? "text-success" : ""}"></i>
+        </div>
+      </div>
+    `;
+    })
+    .join("");
+
+  // Add scan button if any files selected
+  if (STATE.reports.selectedFiles.length > 0) {
+    list.innerHTML += `
+      <div style="margin-top:15px">
+        <button class="btn btn-primary" style="width:100%" onclick="scanReportsCampaigns()">
+          <i data-lucide="search" class="icon"></i> Scan Selected Files for Campaigns
+        </button>
+      </div>
+    `;
+  }
+  refreshIcons();
+}
+
+function toggleReportFile(name) {
+  const idx = STATE.reports.selectedFiles.indexOf(name);
+  if (idx >= 0) {
+    STATE.reports.selectedFiles.splice(idx, 1);
+  } else {
+    STATE.reports.selectedFiles.push(name);
+  }
+  refreshReportsFiles();
+  // Hide step 2 if files changed
+  document.getElementById("reportsStep2").style.display = "none";
+}
+
+async function scanReportsCampaigns() {
+  if (STATE.reports.selectedFiles.length === 0) return;
+  toast("Scanning files...", "info");
+
+  const filesParam = STATE.reports.selectedFiles
+    .map((f) => `input/${f}`)
+    .join(",");
+  try {
+    const res = await fetch(
+      `/api/run-report?files=${encodeURIComponent(filesParam)}&list=true`,
+    );
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    let campaigns = [];
+    try {
+      // Find the first [ and last ] to extract JSON array
+      const start = data.output.indexOf("[");
+      const end = data.output.lastIndexOf("]");
+      if (start !== -1 && end !== -1) {
+        campaigns = JSON.parse(data.output.substring(start, end + 1));
+      } else {
+        campaigns = JSON.parse(data.output);
+      }
+    } catch (e) {
+      console.error("JSON Parse Error:", e, data.output);
+      throw new Error("Could not parse campaign list from script output.");
+    }
+
+    STATE.reports.campaigns = campaigns;
+    STATE.reports.ordering = campaigns.map((_, i) => i);
+
+    document.getElementById("reportsStep2").style.display = "block";
+    renderCampaignOrdering();
+    document
+      .getElementById("reportsStep2")
+      .scrollIntoView({ behavior: "smooth" });
+  } catch (err) {
+    console.error(err);
+    toast("Scan failed: " + err.message, "error");
+  }
+}
+
+function renderCampaignOrdering() {
+  const list = document.getElementById("campaignOrderList");
+  const campaigns = STATE.reports.campaigns;
+  const order = STATE.reports.ordering;
+
+  list.innerHTML = order
+    .map((idx, i) => {
+      const name = campaigns[idx];
+      return `
+      <div class="campaign-order-item" draggable="true" ondragstart="handleCampDragStart(event, ${i})" ondragover="handleCampDragOver(event)" ondrop="handleCampDrop(event, ${i})">
+        <div class="drag-handle"><i data-lucide="grip-vertical" class="icon"></i></div>
+        <div class="campaign-index">${i + 1}</div>
+        <div class="campaign-name">${esc(name)}</div>
+      </div>
+    `;
+    })
+    .join("");
+  refreshIcons();
+}
+
+let _dragCampIdx = null;
+function handleCampDragStart(e, i) {
+  _dragCampIdx = i;
+  e.dataTransfer.effectAllowed = "move";
+}
+function handleCampDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+}
+function handleCampDrop(e, i) {
+  e.preventDefault();
+  if (_dragCampIdx === null || _dragCampIdx === i) return;
+
+  const order = STATE.reports.ordering;
+  const movedIdx = order.splice(_dragCampIdx, 1)[0];
+  order.splice(i, 0, movedIdx);
+
+  _dragCampIdx = null;
+  renderCampaignOrdering();
+}
+
+async function generateFinalReport() {
+  const filesParam = STATE.reports.selectedFiles
+    .map((f) => `input/${f}`)
+    .join(",");
+  const orderParam = STATE.reports.ordering.map((i) => i + 1).join(","); // Python script uses 1-based indices
+
+  toast("Generating report...", "info");
+  document.getElementById("reportsOutput").style.display = "block";
+  document.getElementById("reportsResultMsg").textContent =
+    "⏳ Processing Python script...";
+  document.getElementById("btnDownloadReport").style.display = "none";
+
+  try {
+    const res = await fetch(
+      `/api/run-report?files=${encodeURIComponent(filesParam)}&order=${orderParam}`,
+    );
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    const outMatch = data.output.match(/SUCCESS: (.*)/);
+    if (outMatch) {
+      const outPath = outMatch[1];
+      document.getElementById("reportsResultMsg").innerHTML =
+        `<div class="text-success" style="font-weight:600">Report Generated Successfully!</div><div style="font-size:12px;margin-top:5px">Saved as: ${esc(outPath)}</div>`;
+
+      const btn = document.getElementById("btnDownloadReport");
+      btn.style.display = "inline-flex";
+      btn.onclick = () => {
+        const a = document.createElement("a");
+        a.href = "/" + outPath;
+        a.download = outPath;
+        a.click();
+      };
+      toast("Report generated!", "success");
+    } else {
+      document.getElementById("reportsResultMsg").textContent = data.output;
+    }
+  } catch (err) {
+    document.getElementById("reportsResultMsg").innerHTML =
+      `<div class="text-danger">❌ Error: ${esc(err.message)}</div>`;
+    toast("Generation failed", "error");
   }
 }
 
