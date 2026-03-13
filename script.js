@@ -189,14 +189,16 @@ const STATE = {
   _currentRows: [],
   _pendingHandle: null,
   currentTemplateLinks: [],
-  previewMode: "template",
-  viewerQuery: "",
-  _activeTemplateName: null,
-  reports: {
-    selectedFiles: [],
-    campaigns: [],
-    ordering: [], // indices
+  analyticsStartDate: new Date().toISOString().split("T")[0],
+  analyticsEndDate: new Date().toISOString().split("T")[0],
+  analyticsView: "today",
+  duplicationModal: {
+    data: [],
+    activeSheet: null,
+    hideBaseline: true,
+    filename: "",
   },
+  runs: JSON.parse(localStorage.getItem("dmp_runs") || "0"),
   lastPage: localStorage.getItem("dmp_last_page") || "home",
 };
 
@@ -3045,7 +3047,7 @@ async function saveActiveCampaignAsBaseline() {
   const campName = STATE._activeOutputName
     .replace(/_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}\.xlsx$/, "")
     .replace(/\.xlsx$/, "");
-  const filename = campName + ".xlsx";
+  const filename = getNormalizedFilename(campName);
 
   try {
     await loadSheetJS();
@@ -3078,6 +3080,7 @@ async function saveActiveCampaignAsBaseline() {
     // Merge: existing baseline rows + today's new rows = full cumulative
     const newWb = STATE._currentWorkbook;
     const mergedWb = XLSX.utils.book_new();
+    let totalRowsCount = 0;
 
     const allSheets = new Set([
       ...Object.keys(existingSheets),
@@ -3087,7 +3090,9 @@ async function saveActiveCampaignAsBaseline() {
     allSheets.forEach((sheetName) => {
       const oldRows = existingSheets[sheetName] || [];
       const newSheet = newWb.Sheets[sheetName];
-      const newRows = newSheet ? XLSX.utils.sheet_to_json(newSheet) : [];
+      const newRows = newSheet
+        ? XLSX.utils.sheet_to_json(newSheet, { defval: "" })
+        : [];
 
       // DEDUPLICATION: Find unique columns from template
       let keys = [];
@@ -3101,37 +3106,20 @@ async function saveActiveCampaignAsBaseline() {
         keys = tpl.dedupCols;
       }
 
-      // Helper to generate a stable key for a row
-      const getRowKey = (r, kList) => {
-        const getVal = (row, k) => {
-          if (row[k] !== undefined) return String(row[k]).trim().toLowerCase();
-          const foundKey = Object.keys(row).find(
-            (ak) => ak.toLowerCase() === k.toLowerCase(),
-          );
-          return foundKey ? String(row[foundKey]).trim().toLowerCase() : "";
-        };
-
-        if (kList.length > 0) {
-          // Use template-defined unique columns
-          return kList.map((k) => getVal(r, k)).join("|");
-        } else {
-          // Fallback: use all columns normalized
-          return Object.keys(r)
-            .sort()
-            .map((k) => getVal(r, k))
-            .join("|");
-        }
-      };
-
-      const seen = new Set(oldRows.map((r) => getRowKey(r, keys)));
+      const seen =
+        keys.length > 0
+          ? new Set(oldRows.map((r) => getLeadKey(r, keys)))
+          : null;
       const filteredNew = newRows.filter((r) => {
-        const key = getRowKey(r, keys);
-        if (!key || key === "|" || seen.has(key)) return false;
-        seen.add(key);
+        if (keys.length === 0 || !seen) return true;
+        const key = getLeadKey(r, keys);
+        if (!key || key.replace(/\|/g, "").trim() === "") return true;
+        if (seen.has(key)) return false;
         return true;
       });
 
       const combined = [...oldRows, ...filteredNew];
+      totalRowsCount += combined.length;
       const ws = XLSX.utils.json_to_sheet(combined);
       XLSX.utils.book_append_sheet(mergedWb, ws, sheetName.substring(0, 31));
     });
@@ -3145,14 +3133,8 @@ async function saveActiveCampaignAsBaseline() {
     await writable.write(ab);
     await writable.close();
 
-    // Count total rows
-    let totalRows = 0;
-    mergedWb.SheetNames.forEach((n) => {
-      totalRows += XLSX.utils.sheet_to_json(mergedWb.Sheets[n]).length;
-    });
-
     toast(
-      `Baseline saved — ${totalRows} total rows in templates/baselines/${filename}`,
+      `Baseline saved — ${totalRowsCount} total rows in templates/baselines/${filename}`,
       "success",
     );
   } catch (e) {
@@ -3285,7 +3267,7 @@ function switchSheet(btn, idx) {
           <button class="btn btn-ghost btn-sm" onclick="displayDuplicationHistory(STATE._activeOutputName)" style="border-color:var(--blue);color:var(--blue);"><i data-lucide="copy" class="icon"></i> Duplicates</button>
           <div style="position:relative;display:flex;align-items:center;background:var(--surface2);border:1.5px solid var(--blue);border-radius:8px;padding:2px 4px;">
             <i data-lucide="search" class="icon" style="position:absolute;left:8px;width:12px;height:12px;color:var(--blue);"></i>
-            <input type="number" id="jumpToRowInput" class="input" placeholder="Search Row #" style="width:100px;padding-left:26px;font-size:11px;height:24px;background:transparent;border:none;color:var(--text1);" onkeyup="if(event.key==='Enter')jumpToRow(this.value)">
+            <input type="number" id="jumpToRowInput" class="input" placeholder="Search Row #" style="width:150px;padding-left:26px;font-size:11px;height:24px;background:transparent;border:none;color:var(--text1);" onkeyup="if(event.key==='Enter')jumpToRow(this.value)">
           </div>
           ${
             !isBaselineFile
@@ -4583,7 +4565,47 @@ function formatDateTime(ms) {
   return d.toLocaleString("en-US", options);
 }
 
-// (Redundant runDirectMerge removed)
+function getNormalizedFilename(name) {
+  if (!name) return "";
+  // Strip extension if present, trim, replace spaces with underscores
+  return (
+    name
+      .replace(/\.xlsx$/i, "")
+      .trim()
+      .replace(/\s+/g, "_") + ".xlsx"
+  );
+}
+
+// ─── DEDUPLICATION UTILITIES ───
+function getLeadKey(row, dedupCols) {
+  const getVal = (r, k) => {
+    if (r[k] !== undefined) return String(r[k]).trim().toLowerCase();
+    // Search case-insensitive
+    const alt = Object.keys(r).find(
+      (ak) => ak.toLowerCase() === k.toLowerCase(),
+    );
+    return alt ? String(r[alt]).trim().toLowerCase() : "";
+  };
+
+  // Filter out ALL system metadata: __dmp_ prefixes and [System] brackets
+  const isSystemKey = (k) =>
+    k.startsWith("__dmp") || k.includes("[") || k.includes("]");
+
+  if (dedupCols && dedupCols.length > 0) {
+    return dedupCols.map((k) => getVal(row, k)).join("|");
+  }
+
+  // Fallback: Use all non-system columns, sorted for stability
+  return Object.entries(row)
+    .filter(([k]) => !isSystemKey(k))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) =>
+      String(v || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .join("|");
+}
 
 async function mergeGroupData(group, template, incremental, targetName = "") {
   let allRows = [];
@@ -4591,28 +4613,109 @@ async function mergeGroupData(group, template, incremental, targetName = "") {
   let duplicatedRows = [];
 
   for (const src of group.sources) {
-    let rows = [];
     const pagesToInclude =
       template.pages && template.pages.length > 0
         ? template.pages.join(",")
         : src.pages || "";
+
+    let sourceData = []; // Array of {name, rows}
     if (src.path.startsWith("http")) {
-      rows = await fetchExternalData(src.path, template, pagesToInclude);
+      sourceData = await fetchExternalData(src.path, template, pagesToInclude);
     } else {
-      rows = await readLocalData(src.path, template, pagesToInclude);
+      sourceData = await readLocalData(src.path, template, pagesToInclude);
     }
-    if (rows && rows.length > 0) {
-      metrics.loaded += rows.length;
-      // Track original source and row number (header is row 1, data starts row 2)
-      allRows.push(...rows.map((r, i) => ({
+
+    for (const page of sourceData) {
+      let pageRows = page.rows.map((r, i) => ({
         ...r,
         __dmp_src: src.label || src.path,
-        __dmp_idx: i + 2
-      })));
+        __dmp_page: page.name,
+        __dmp_idx: i + 2,
+      }));
+
+      metrics.loaded += pageRows.length;
+
+      // --- Sheet-Level Deduplication ---
+      // 1. Incremental (Baseline) check for THIS sheet
+      if (incremental) {
+        const baselineData = await loadBaseline(
+          group.name,
+          targetName,
+          template.name,
+        );
+        if (baselineData && baselineData.length > 0) {
+          const dedupCols = group.dedupCols || template.dedupCols || [];
+          const baselineMap = new Map();
+          baselineData.forEach((r) => {
+            if (r.__dmp_page === page.name || !r.__dmp_page) {
+              const key = getLeadKey(r, dedupCols);
+              if (key && !baselineMap.has(key))
+                baselineMap.set(key, r.__dmp_idx);
+            }
+          });
+
+          const nextRows = [];
+          for (const r of pageRows) {
+            const key = getLeadKey(r, dedupCols);
+            if (key && baselineMap.has(key)) {
+              metrics.baseline++;
+              duplicatedRows.push({
+                source: `${r.__dmp_src} (Sheet: ${page.name})`,
+                row_index: r.__dmp_idx,
+                primary_source: `Historical Baseline (Sheet: ${group.name})`,
+                primary_index: baselineMap.get(key),
+                row_data: r,
+                key: key,
+                type: "baseline",
+                sheetName: group.name,
+              });
+            } else {
+              nextRows.push(r);
+            }
+          }
+          pageRows = nextRows;
+        }
+      }
+
+      const dedupCols = group.dedupCols || template.dedupCols || [];
+      if (dedupCols.length > 0) {
+        const seenMap = new Map();
+        const unique = [];
+        for (const r of pageRows) {
+          const key = getLeadKey(r, dedupCols);
+          const isEmpty = !key || key.replace(/\|/g, "").trim() === "";
+          if (isEmpty) {
+            unique.push(r);
+          } else if (!seenMap.has(key)) {
+            seenMap.set(key, {
+              src: r.__dmp_src,
+              idx: r.__dmp_idx,
+              page: r.__dmp_page,
+            });
+            unique.push(r);
+          } else {
+            metrics.deduped++;
+            const primary = seenMap.get(key);
+            duplicatedRows.push({
+              source: `${r.__dmp_src} (Sheet: ${page.name})`,
+              row_index: r.__dmp_idx,
+              primary_source: `${primary.src} (Sheet: ${primary.page})`,
+              primary_index: primary.idx,
+              row_data: r,
+              key: key,
+              type: "internal",
+              sheetName: group.name,
+            });
+          }
+        }
+        pageRows = unique;
+      }
+
+      allRows.push(...pageRows);
     }
   }
 
-  // 1. Sorting
+  // 2. Sorting
   if (template.sortCol) {
     const isDesc = template.sortOrder === "desc";
     allRows.sort((a, b) => {
@@ -4623,78 +4726,6 @@ async function mergeGroupData(group, template, incremental, targetName = "") {
       return 0;
     });
   }
-
-  // 2. Incremental filtering
-  if (incremental) {
-    const baseline = await loadBaseline(group.name, targetName);
-    if (baseline && baseline.length > 0) {
-      const dedupCols = group.dedupCols || template.dedupCols || [];
-      const getRowKey = (r) => {
-        if (dedupCols.length > 0) {
-          return dedupCols
-            .map((k) =>
-              String(r[k] || "")
-                .trim()
-                .toLowerCase(),
-            )
-            .join("|");
-        }
-        return Object.values(r)
-          .map((v) =>
-            String(v || "")
-              .trim()
-              .toLowerCase(),
-          )
-          .join("|");
-      };
-      const seenBaseline = new Set(baseline.map(getRowKey).filter(Boolean));
-      const filtered = allRows.filter((r) => !seenBaseline.has(getRowKey(r)));
-      metrics.baseline = allRows.length - filtered.length;
-      allRows = filtered;
-    }
-  }
-
-  // 3. Dedup
-  // 3. Dedup — only when explicit dedup columns are defined
-  const dedupCols = group.dedupCols || template.dedupCols || [];
-
-  if (dedupCols.length > 0) {
-    const getRowKey = (r) =>
-      dedupCols
-        .map((k) => {
-          if (r[k] !== undefined) return String(r[k]).trim().toLowerCase();
-          const alt = Object.keys(r).find(
-            (ak) => ak.toLowerCase() === k.toLowerCase(),
-          );
-          return alt ? String(r[alt]).trim().toLowerCase() : "";
-        })
-        .join("|");
-    const seenMap = new Map();
-    const unique = [];
-    for (const r of allRows) {
-      const key = getRowKey(r);
-      const isEmpty = !key || key.replace(/\|/g, "").trim() === "";
-      if (isEmpty) {
-        unique.push(r);
-      } else if (!seenMap.has(key)) {
-        seenMap.set(key, { src: r.__dmp_src, idx: r.__dmp_idx });
-        unique.push(r);
-      } else {
-        metrics.deduped++;
-        const primary = seenMap.get(key);
-        duplicatedRows.push({
-          source: r.__dmp_src,
-          row_index: r.__dmp_idx,
-          primary_source: primary.src,
-          primary_index: primary.idx,
-          row_data: r, // Keep the full object for formatting
-          key: key
-        });
-      }
-    }
-    allRows = unique;
-  }
-  // If dedupCols is empty — keep ALL rows, no dedup
 
   return { rows: allRows, metrics, duplicatedRows };
 }
@@ -4727,7 +4758,7 @@ async function readLocalData(path, template, pagesToInclude = "") {
     const ab = await file.arrayBuffer();
     const wb = XLSX.read(new Uint8Array(ab), { type: "array" });
 
-    const combined = [];
+    const output = [];
     const allowedPages = pagesToInclude
       ? pagesToInclude
           .split(",")
@@ -4749,10 +4780,12 @@ async function readLocalData(path, template, pagesToInclude = "") {
       }
       const mapped = mapSourceToJson(json, template);
 
-      if (mapped && mapped.length) combined.push(...mapped);
+      if (mapped && mapped.length) {
+        output.push({ name, rows: mapped });
+      }
     }
 
-    return combined;
+    return output;
   } catch (e) {
     return [];
   }
@@ -5076,7 +5109,7 @@ async function runDirectMerge() {
       const rows = result.rows;
       group.rows = rows; // Store for analytics
       group.duplicatedRows = result.duplicatedRows; // Store for history
-      
+
       totalLoaded += result.metrics.loaded;
       totalDeduped += result.metrics.deduped;
       totalBaseline += result.metrics.baseline;
@@ -5084,8 +5117,12 @@ async function runDirectMerge() {
       // Clean up internal metadata before Excel export
       const exportRows = rows.map((r) => {
         const clean = { ...r };
+        if (clean.__dmp_page) {
+          clean["[System] Source Sheet"] = clean.__dmp_page;
+        }
         delete clean.__dmp_src;
         delete clean.__dmp_idx;
+        delete clean.__dmp_page;
         return clean;
       });
 
@@ -5148,9 +5185,11 @@ async function runDirectMerge() {
 
     STATE.runs++;
     save();
-    
+
     // Save Duplication History
-    const allDupes = config.groups.flatMap(g => (g.duplicatedRows || []).map(d => ({ ...d, sheetName: g.name })));
+    const allDupes = config.groups.flatMap((g) =>
+      (g.duplicatedRows || []).map((d) => ({ ...d, sheetName: g.name })),
+    );
     if (allDupes.length > 0) {
       const dupFilename = filename.replace(".xlsx", "_duplicates.json");
       writeToLinkedFolder("output", dupFilename, allDupes);
@@ -5229,7 +5268,7 @@ async function fetchExternalData(url, template, pagesToInclude = "") {
       }
     }
 
-    const combined = [];
+    const output = [];
     const allowedPages = pagesToInclude
       ? pagesToInclude
           .split(",")
@@ -5250,10 +5289,12 @@ async function fetchExternalData(url, template, pagesToInclude = "") {
       if (!json || json.length < 2) continue;
       const mapped = mapSourceToJson(json, template);
 
-      if (mapped && mapped.length) combined.push(...mapped);
+      if (mapped && mapped.length) {
+        output.push({ name: sheetName, rows: mapped });
+      }
     }
 
-    return combined;
+    return output;
   } catch (e) {
     return [];
   }
@@ -5538,15 +5579,14 @@ async function generateFinalReport() {
 function updateDailyAnalytics(campaignName, groups) {
   const today = new Date().toISOString().split("T")[0];
   let analytics = JSON.parse(localStorage.getItem("dmp_analytics") || "{}");
-  
+
   if (!analytics[today]) analytics[today] = {};
   if (!analytics[today][campaignName]) analytics[today][campaignName] = {};
-  
-  groups.forEach(g => {
-    if (!analytics[today][campaignName][g.name]) analytics[today][campaignName][g.name] = 0;
-    analytics[today][campaignName][g.name] += (g.rows ? g.rows.length : 0);
+
+  groups.forEach((g) => {
+    analytics[today][campaignName][g.name] = g.rows ? g.rows.length : 0;
   });
-  
+
   localStorage.setItem("dmp_analytics", JSON.stringify(analytics));
   saveAnalyticsToFile(analytics);
   refreshAnalyticsDashboard();
@@ -5555,7 +5595,11 @@ function updateDailyAnalytics(campaignName, groups) {
 async function saveAnalyticsToFile(analytics) {
   if (!STATE.folderHandle) return;
   try {
-    const lines = ["DataMerge Pro - Lead Analytics", "Generated: " + new Date().toLocaleString(), ""];
+    const lines = [
+      "DataMerge Pro - Lead Analytics",
+      "Generated: " + new Date().toLocaleString(),
+      "",
+    ];
     for (const [date, campaigns] of Object.entries(analytics)) {
       lines.push(`--- DATE: ${date} ---`);
       for (const [camp, groups] of Object.entries(campaigns)) {
@@ -5566,13 +5610,21 @@ async function saveAnalyticsToFile(analytics) {
       }
       lines.push("");
     }
-    const fileHandle = await STATE.folderHandle.getFileHandle("leads_analytics.txt", { create: true });
+    const fileHandle = await STATE.folderHandle.getFileHandle(
+      "leads_analytics.txt",
+      { create: true },
+    );
     const writable = await fileHandle.createWritable();
     await writable.write(lines.join("\n"));
     await writable.close();
   } catch (e) {
     console.warn("Could not save analytics file:", e);
   }
+}
+
+function setAnalyticsView(view) {
+  STATE.analyticsView = view;
+  refreshAnalyticsDashboard();
 }
 
 function refreshAnalyticsDashboard() {
@@ -5582,11 +5634,78 @@ function refreshAnalyticsDashboard() {
   const dateEl = document.getElementById("analyticsDate");
   if (!dash || !dateEl) return;
 
-  dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  
-  const todayData = analytics[today];
-  if (!todayData) {
-    dash.innerHTML = `<div class="empty-state" style="padding: 30px;"><p>No runs today yet. Detailed campaign/source analytics will appear here after a merge.</p></div>`;
+  // Calculate Bounds
+  const dates = Object.keys(analytics).sort();
+  const minDate = dates.length > 0 ? dates[0] : today;
+  const maxDate = dates.length > 0 ? dates[dates.length - 1] : today;
+
+  const view = STATE.analyticsView || "today";
+  dateEl.innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap: wrap;">
+      <div class="toggle-group" style="display:inline-flex; background:var(--surface2); padding:2px; border-radius:6px;">
+        <button class="toggle-btn ${view === "today" ? "active" : ""}" onclick="setAnalyticsView('today')" style="padding:4px 12px; font-size:10px; border:none; border-radius:4px; cursor:pointer; background:${view === "today" ? "var(--blue)" : "transparent"}; color:${view === "today" ? "white" : "var(--text3)"}; transition:all 0.2s;">Range</button>
+        <button class="toggle-btn ${view === "total" ? "active" : ""}" onclick="setAnalyticsView('total')" style="padding:4px 12px; font-size:10px; border:none; border-radius:4px; cursor:pointer; background:${view === "total" ? "var(--blue)" : "transparent"}; color:${view === "total" ? "white" : "var(--text3)"}; transition:all 0.2s;">Total</button>
+      </div>
+
+      ${
+        view === "today"
+          ? `
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="position:relative; display:flex; align-items:center; gap:5px;">
+             <span style="font-size:10px; color:var(--text3); font-weight:600;">FROM</span>
+             <div style="position:relative; display:flex; align-items:center;">
+               <i data-lucide="calendar" style="position:absolute; left:8px; width:10px; height:10px; color:var(--text3); pointer-events:none;"></i>
+               <input type="date" value="${STATE.analyticsStartDate}" 
+                      min="${minDate}" max="${maxDate}"
+                      onchange="setAnalyticsRange(this.value, STATE.analyticsEndDate)"
+                      style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:2px 6px 2px 24px; font-size:10px; color:var(--text1); cursor:pointer;">
+             </div>
+             <span style="font-size:10px; color:var(--text3); font-weight:600;">TO</span>
+             <div style="position:relative; display:flex; align-items:center;">
+               <i data-lucide="calendar" style="position:absolute; left:8px; width:10px; height:10px; color:var(--text3); pointer-events:none;"></i>
+               <input type="date" value="${STATE.analyticsEndDate}" 
+                      min="${minDate}" max="${maxDate}"
+                      onchange="setAnalyticsRange(STATE.analyticsStartDate, this.value)"
+                      style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:2px 6px 2px 24px; font-size:10px; color:var(--text1); cursor:pointer;">
+             </div>
+          </div>
+          <button class="btn btn-ghost" onclick="resetRangeAnalytics()" style="padding:2px 8px; font-size:9px;" title="Reset incorrect counts for this range"><span style="color:var(--red);">Reset</span></button>
+        </div>
+      `
+          : ""
+      }
+    </div>
+  `;
+
+  let displayData = {}; // camp -> group -> count
+  if (view === "today") {
+    // Range Aggregation
+    const start = STATE.analyticsStartDate;
+    const end = STATE.analyticsEndDate;
+    Object.entries(analytics).forEach(([date, dayData]) => {
+      if (date >= start && date <= end) {
+        Object.entries(dayData).forEach(([camp, groups]) => {
+          if (!displayData[camp]) displayData[camp] = {};
+          Object.entries(groups).forEach(([group, count]) => {
+            displayData[camp][group] = (displayData[camp][group] || 0) + count;
+          });
+        });
+      }
+    });
+  } else {
+    // Cumulative Sum
+    Object.values(analytics).forEach((dayData) => {
+      Object.entries(dayData).forEach(([camp, groups]) => {
+        if (!displayData[camp]) displayData[camp] = {};
+        Object.entries(groups).forEach(([group, count]) => {
+          displayData[camp][group] = (displayData[camp][group] || 0) + count;
+        });
+      });
+    });
+  }
+
+  if (Object.keys(displayData).length === 0) {
+    dash.innerHTML = `<div class="empty-state" style="padding: 30px;"><p>No ${view === "today" ? "runs today" : "analytics data"} yet.</p></div>`;
     return;
   }
 
@@ -5595,12 +5714,12 @@ function refreshAnalyticsDashboard() {
       <tr style="background: var(--surface2); border-bottom: 1px solid var(--border);">
         <th style="padding:10px; text-align:left;">Campaign</th>
         <th style="padding:10px; text-align:left;">Source Group</th>
-        <th style="padding:10px; text-align:right;">Leads Today</th>
+        <th style="padding:10px; text-align:right;">Leads ${view === "today" ? "Today" : "Total"}</th>
       </tr>
     </thead>
     <tbody>`;
-  
-  for (const [camp, groups] of Object.entries(todayData)) {
+
+  for (const [camp, groups] of Object.entries(displayData)) {
     for (const [group, count] of Object.entries(groups)) {
       html += `<tr style="border-bottom: 1px solid var(--border);">
         <td style="padding:10px;"><strong>${esc(camp)}</strong></td>
@@ -5611,6 +5730,31 @@ function refreshAnalyticsDashboard() {
   }
   html += `</tbody></table>`;
   dash.innerHTML = html;
+  refreshIcons();
+}
+
+function setAnalyticsRange(start, end) {
+  STATE.analyticsStartDate = start;
+  STATE.analyticsEndDate = end;
+  refreshAnalyticsDashboard();
+}
+
+function resetRangeAnalytics() {
+  const start = STATE.analyticsStartDate;
+  const end = STATE.analyticsEndDate;
+  if (!confirm(`Clear lead analytics counts from ${start} to ${end}?`)) return;
+
+  let analytics = JSON.parse(localStorage.getItem("dmp_analytics") || "{}");
+  Object.keys(analytics).forEach((date) => {
+    if (date >= start && date <= end) {
+      delete analytics[date];
+    }
+  });
+
+  localStorage.setItem("dmp_analytics", JSON.stringify(analytics));
+  saveAnalyticsToFile(analytics);
+  toast(`Analytics for range ${start} to ${end} reset`, "success");
+  refreshAnalyticsDashboard();
 }
 
 async function displayDuplicationHistory(filename) {
@@ -5622,6 +5766,9 @@ async function displayDuplicationHistory(filename) {
     const file = await fileHandle.getFile();
     const data = JSON.parse(await file.text());
 
+    STATE.duplicationModal.data = data;
+    STATE.duplicationModal.filename = filename;
+
     const content = document.getElementById("duplicationContent");
     const title = document.getElementById("duplicationTitle");
     title.textContent = "Duplication History: " + filename;
@@ -5631,57 +5778,44 @@ async function displayDuplicationHistory(filename) {
     } else {
       // Group by sheetName
       const groups = {};
-      data.forEach(d => {
+      data.forEach((d) => {
         const s = d.sheetName || "Default";
         if (!groups[s]) groups[s] = [];
         groups[s].push(d);
       });
 
-      let html = `<div style="margin-bottom:15px; font-size:12px; color:var(--text2);">
-        Found <strong>${data.length}</strong> duplicated rows across <strong>${Object.keys(groups).length}</strong> sheets.
-      </div>`;
+      const sheetNames = Object.keys(groups);
+      STATE.duplicationModal.activeSheet = sheetNames[0];
 
-      for (const [sname, items] of Object.entries(groups)) {
-        html += `<div style="margin-top:20px; margin-bottom:10px; padding:8px 12px; background:var(--surface3); border-radius:8px; font-weight:700; color:var(--blue); display:flex; align-items:center; gap:8px;">
-          <i data-lucide="layers" style="width:14px;height:14px;"></i> Sheet: ${esc(sname)}
-          <span style="margin-left:auto; font-size:10px; font-weight:500; opacity:0.7;">${items.length} duplicates</span>
+      // Build Sticky Header (Tabs + Filter)
+      let html = `<div style="position:sticky; top:0; background:var(--surface1); z-index:10; padding:10px 0; border-bottom:1px solid var(--border); margin-bottom:15px;">
+        <div style="display:flex; align-items:center; gap:15px; margin-bottom:15px;">
+          <div style="font-size:12px; color:var(--text2); font-weight:600;">
+             Total Merge Duplicates: <span style="color:var(--blue); font-size:14px;">${data.length}</span>
+          </div>
+          <label class="history-filter-pill" style="margin-left:auto;">
+            <input type="checkbox" onchange="toggleDuplicationBaseline(this.checked)" ${STATE.duplicationModal.hideBaseline ? "checked" : ""}> 
+            Hide Baseline Matches
+          </label>
         </div>
-        <table class="input-table" style="width:100%; border-collapse: collapse; font-size:11px; margin-bottom:24px;">
-          <thead>
-            <tr style="background: var(--surface2); border-bottom: 2px solid var(--border);">
-              <th style="padding:10px; text-align:left; width:150px;">Removed Row</th>
-              <th style="padding:10px; text-align:left; width:150px;">Original Match</th>
-              <th style="padding:10px; text-align:left;">Duplicated Lead Details</th>
-            </tr>
-          </thead>
-          <tbody>`;
-        
-        items.forEach((d) => {
-          const rowData = d.row_data || {};
-          const displayData = Object.entries(rowData)
-            .filter(([k]) => !k.startsWith("__dmp"))
-            .map(([k, v]) => `<div><span style="color:var(--text3); font-weight:600;">${esc(k)}:</span> ${esc(String(v))}</div>`)
-            .join("");
+        <div class="tabs-scroll">
+          ${sheetNames
+            .map(
+              (name) => `
+            <button class="tab-btn ${name === STATE.duplicationModal.activeSheet ? "active" : ""}" 
+                    id="dup-tab-${name.replace(/\s+/g, "-")}"
+                    onclick="setDuplicationTab('${name}')">
+              ${esc(name)}
+            </button>
+          `,
+            )
+            .join("")}
+        </div>
+      </div>
+      <div id="duplicationTabContent"></div>`;
 
-          html += `<tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding:10px; vertical-align:top; border-right:1px solid var(--border);">
-              <div style="font-weight:700; color:var(--red);">Row ${d.row_index}</div>
-              <div style="font-size:10px; color:var(--text3);">${esc(d.source)}</div>
-            </td>
-            <td style="padding:10px; vertical-align:top; border-right:1px solid var(--border);">
-              <div style="font-weight:700; color:var(--green);">Existing Row ${d.primary_index}</div>
-              <div style="font-size:10px; color:var(--text3);">${esc(d.primary_source)}</div>
-            </td>
-            <td style="padding:10px; vertical-align:top;">
-              <div style="max-height:100px; overflow-y:auto; padding:5px; background:var(--surface2); border-radius:4px; line-height:1.4;">
-                ${displayData}
-              </div>
-            </td>
-          </tr>`;
-        });
-        html += `</tbody></table>`;
-      }
       content.innerHTML = html;
+      renderDuplicationTab();
     }
 
     document.getElementById("duplicationOverlay").classList.add("show");
@@ -5691,6 +5825,107 @@ async function displayDuplicationHistory(filename) {
     console.error(e);
     toast("No duplication history found for this file", "info");
   }
+}
+
+function setDuplicationTab(name) {
+  STATE.duplicationModal.activeSheet = name;
+  const content = document.getElementById("duplicationContent");
+  content
+    .querySelectorAll(".tab-btn")
+    .forEach((btn) => btn.classList.remove("active"));
+  const activeBtn = document.getElementById(
+    `dup-tab-${name.replace(/\s+/g, "-")}`,
+  );
+  if (activeBtn) activeBtn.classList.add("active");
+  renderDuplicationTab();
+}
+
+function toggleDuplicationBaseline(checked) {
+  STATE.duplicationModal.hideBaseline = checked;
+  renderDuplicationTab();
+}
+
+function renderDuplicationTab() {
+  const { data, activeSheet, hideBaseline } = STATE.duplicationModal;
+  const container = document.getElementById("duplicationTabContent");
+  if (!container || !activeSheet) return;
+
+  let items = data.filter((d) => (d.sheetName || "Default") === activeSheet);
+  const totalInSheet = items.length;
+
+  if (hideBaseline) {
+    items = items.filter((d) => d.type !== "baseline");
+  }
+
+  const baselineCount = items.filter((d) => d.type === "baseline").length; // Should be 0 if hidden
+  const internalCount =
+    totalInSheet -
+    data.filter(
+      (d) =>
+        (d.sheetName || "Default") === activeSheet && d.type === "baseline",
+    ).length;
+
+  let html = `<div style="margin-bottom:12px; display:flex; gap:10px; font-size:11px;">
+    <div style="padding:4px 8px; border-radius:4px; background:rgba(251, 191, 36, 0.1); color:#78350f; font-weight:600; border:1px solid rgba(251, 191, 36, 0.2);">
+      ${internalCount} New Duplicates
+    </div>
+    <div style="padding:4px 8px; border-radius:4px; background:rgba(59, 130, 246, 0.1); color:#3b82f6; font-weight:600; border:1px solid rgba(59, 130, 246, 0.2);">
+      ${totalInSheet - internalCount} Matches in History
+    </div>
+  </div>`;
+
+  if (items.length === 0) {
+    html += `<div class="empty-state" style="padding:40px;"><p>${hideBaseline ? "No new duplicates found in this sheet (showing 0 of " + totalInSheet + " total)" : "No duplicates found"}.</p></div>`;
+  } else {
+    html += `<table class="input-table" style="width:100%; border-collapse: collapse; font-size:11px; margin-bottom:24px;">
+      <thead>
+        <tr style="background: var(--surface2); border-bottom: 2px solid var(--border);">
+          <th style="padding:10px; text-align:left; width:140px;">Removed Row</th>
+          <th style="padding:10px; text-align:left; width:140px;">Original Match</th>
+          <th style="padding:10px; text-align:left;">Duplicated Lead Details</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+    items.forEach((d) => {
+      const rowData = d.row_data || {};
+      const displayData = Object.entries(rowData)
+        .filter(([k]) => !k.startsWith("__dmp"))
+        .map(
+          ([k, v]) =>
+            `<div><span style="color:var(--text3); font-weight:600;">${esc(k)}:</span> ${esc(String(v))}</div>`,
+        )
+        .join("");
+
+      html += `<tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding:10px; vertical-align:top; border-right:1px solid var(--border);">
+          <div style="font-weight:700; color:var(--red);">Row ${d.row_index}</div>
+          <div style="font-size:10px; color:var(--text3); margin-top:2px;">
+            ${esc(d.source).replace(/\(Sheet: (.*?)\)/g, '<span style="color:var(--blue); font-weight:600;">(Sheet: $1)</span>')}
+          </div>
+          <div style="margin-top:8px;">
+            <span style="font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase; 
+              ${d.type === "baseline" ? "background: #3b82f6; color: white;" : "background: #fbbf24; color: #78350f;"}">
+              ${d.type === "baseline" ? "Matched in History" : "Duplicate in Sheet"}
+            </span>
+          </div>
+        </td>
+        <td style="padding:10px; vertical-align:top; border-right:1px solid var(--border);">
+          <div style="font-weight:700; color:var(--green);">${d.type === "baseline" ? "Baseline Row" : "Existing Row"} ${d.primary_index}</div>
+          <div style="font-size:10px; color:var(--text3); margin-top:2px;">
+            ${esc(d.primary_source).replace(/\(Sheet: (.*?)\)/g, '<span style="color:var(--blue); font-weight:600;">(Sheet: $1)</span>')}
+          </div>
+        </td>
+        <td style="padding:10px; vertical-align:top;">
+          <div style="max-height:120px; overflow-y:auto; padding:5px; background:var(--surface2); border-radius:4px; line-height:1.4;">
+            ${displayData}
+          </div>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  container.innerHTML = html;
 }
 
 function closeDuplicationModal() {
@@ -5717,7 +5952,11 @@ async function jumpToRow(rowNum) {
   // Ensure row is rendered (Lazy loading)
   // We need to loop until the desired row number is within the rendered count
   let safety = 0;
-  while (STATE._renderedRowCount < num && STATE._renderedRowCount < rows.length && safety < 100) {
+  while (
+    STATE._renderedRowCount < num &&
+    STATE._renderedRowCount < rows.length &&
+    safety < 100
+  ) {
     renderMoreRows();
     safety++;
   }
@@ -5726,25 +5965,33 @@ async function jumpToRow(rowNum) {
   const attemptJump = (attempts = 0) => {
     const el = document.getElementById(`preview-row-${num}`);
     if (el) {
-      el.scrollIntoView({ behavior: 'auto', block: 'center' });
-      
+      el.scrollIntoView({ behavior: "auto", block: "center" });
+
       // Visual feedback: Strong Green High-Visibility Flash
       // Use !important style to override any potential cell backgrounds
-      const cells = el.querySelectorAll('td');
-      cells.forEach(td => {
-        td.style.setProperty('background-color', 'rgba(16, 185, 129, 0.4)', 'important');
-        td.style.setProperty('transition', 'none', 'important');
+      const cells = el.querySelectorAll("td");
+      cells.forEach((td) => {
+        td.style.setProperty(
+          "background-color",
+          "rgba(16, 185, 129, 0.4)",
+          "important",
+        );
+        td.style.setProperty("transition", "none", "important");
       });
-      
+
       setTimeout(() => {
-        cells.forEach(td => {
-          td.style.setProperty('transition', 'background-color 2s ease', 'important');
-          td.style.setProperty('background-color', '', '');
+        cells.forEach((td) => {
+          td.style.setProperty(
+            "transition",
+            "background-color 2s ease",
+            "important",
+          );
+          td.style.setProperty("background-color", "", "");
         });
       }, 3000);
-      
+
       const input = document.getElementById("jumpToRowInput");
-      if(input) input.value = "";
+      if (input) input.value = "";
     } else if (attempts < 5) {
       setTimeout(() => attemptJump(attempts + 1), 100);
     } else {
@@ -5753,6 +6000,72 @@ async function jumpToRow(rowNum) {
   };
 
   attemptJump();
+}
+
+// ─── BASELINE LOADING ───
+async function loadBaseline(groupName, targetName, templateName = "") {
+  if (!STATE.folderHandle) return [];
+
+  try {
+    const templatesDir = await STATE.folderHandle.getDirectoryHandle(
+      "templates",
+      { create: true },
+    );
+    const baselinesDir = await templatesDir.getDirectoryHandle("baselines", {
+      create: true,
+    });
+
+    // Search sequence: 1. Normalized Campaign/Output, 2. Normalized Group, 3. Normalized Template
+    const filenames = [
+      getNormalizedFilename(targetName),
+      getNormalizedFilename(groupName),
+      getNormalizedFilename(templateName),
+    ].filter(Boolean);
+
+    let fileHandle = null;
+    let foundName = "";
+
+    // De-duplicate names to avoid redundant checks
+    const uniqueFilenames = [...new Set(filenames)];
+
+    for (const fname of uniqueFilenames) {
+      try {
+        fileHandle = await baselinesDir.getFileHandle(fname);
+        foundName = fname;
+        break;
+      } catch (e) {
+        /* continue search */
+      }
+    }
+
+    if (!fileHandle) return [];
+
+    const file = await fileHandle.getFile();
+    const ab = await file.arrayBuffer();
+    const wb = XLSX.read(ab, { type: "array" });
+
+    // Choose the best matching sheet
+    // Priority: 1. Exact group name, 2. Exact template name, 3. First sheet
+    let sheetName = wb.SheetNames.includes(groupName)
+      ? groupName
+      : wb.SheetNames.includes(templateName)
+        ? templateName
+        : wb.SheetNames[0];
+    if (!sheetName) return [];
+
+    const ws = wb.Sheets[sheetName];
+    // Use defval: "" to ensure identical parsing with live data
+    return XLSX.utils.sheet_to_json(ws, { defval: "" }).map((r, i) => {
+      const mapped = { ...r, __dmp_idx: i + 2 };
+      // Restore internal page metadata from system column if present
+      const srcSheet = r["[System] Source Sheet"] || r["[System] Page"];
+      if (srcSheet) mapped.__dmp_page = srcSheet;
+      return mapped;
+    });
+  } catch (e) {
+    console.warn("Baseline load error:", e);
+    return [];
+  }
 }
 
 // ─── INIT ───
