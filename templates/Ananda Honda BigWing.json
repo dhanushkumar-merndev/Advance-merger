@@ -1,0 +1,72 @@
+{
+  "name": "Ananda Honda BigWing",
+  "columns": [
+    [
+      "Date",
+      "0",
+      "a"
+    ],
+    [
+      "Campaign_Name",
+      "campaign_name",
+      "h",
+      "l"
+    ],
+    [
+      "Name",
+      "first_name",
+      "h",
+      "l",
+      "j",
+      "u",
+      "x"
+    ],
+    [
+      "Phone Number",
+      "phone_number",
+      "d",
+      "i",
+      "z"
+    ],
+    [
+      "Remark",
+      "0",
+      "0"
+    ],
+    [
+      "Location",
+      "0",
+      "0"
+    ],
+    [
+      "Status",
+      "0",
+      "0"
+    ],
+    [
+      "Interested_in",
+      "which_honda_bigwing_motorcycle_are_you_interested_in?",
+      "z"
+    ],
+    [
+      "looking_to_exchange_your_vehicle?_we_have_exciting_offers_for_you.",
+      "looking_to_exchange_your_vehicle?_we_have_exciting_offers_for_you.",
+      "z"
+    ],
+    [
+      "Created_time",
+      "created_time"
+    ]
+  ],
+  "unique_columns": [
+    "Phone Number"
+  ],
+  "sort_column": "",
+  "sort_order": "asc",
+  "google_links": [
+    "https://docs.google.com/spreadsheets/d/1GrRHozjIPvQxGSJ-f_p9LMpG_fnOUw6XVaffHtLqJn4/edit?usp=sharing"
+  ],
+  "pages": [
+    "Hornet 2.0"
+  ]
+}

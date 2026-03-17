@@ -1,0 +1,12 @@
+{
+  "name": "Ananda Big Wing",
+  "templateName": "Ananda Honda BigWing",
+  "sources": [
+    {
+      "label": "Sheet from Template",
+      "path": "https://docs.google.com/spreadsheets/d/1GrRHozjIPvQxGSJ-f_p9LMpG_fnOUw6XVaffHtLqJn4/edit?usp=sharing",
+      "pages": ""
+    }
+  ],
+  "created": "2026-03-15T07:53:31.320Z"
+}

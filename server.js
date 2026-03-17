@@ -72,7 +72,10 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    let cmd = `python report.py ${files.split(",").map(f => `"${f.trim()}"`).join(" ")}`;
+    let cmd = `python report.py ${files
+      .split(",")
+      .map((f) => `"${f.trim()}"`)
+      .join(" ")}`;
     if (listOnly) cmd += " --list";
     if (order) cmd += ` --order "${order}"`;
     if (out) cmd += ` --out "${out}"`;
@@ -114,46 +117,48 @@ const server = http.createServer((req, res) => {
 
 // Auto-shutdown if no heartbeat for 10 seconds
 setInterval(() => {
-  if (Date.now() - lastHeartbeat > 10000) {
+  if (Date.now() - lastHeartbeat > 600000) {
     process.exit(0);
   }
 }, 5000);
 
 const startServer = (port) => {
-  server.listen(port, () => {
-    const url = `http://localhost:${port}`;
-    console.log(`[SUCCESS] Server running at ${url}`);
+  server
+    .listen(port, () => {
+      const url = `http://localhost:${port}`;
+      console.log(`[SUCCESS] Server running at ${url}`);
 
-    // Open the browser - specifically target chrome on Windows if possible
-    let command;
-    if (process.platform === "win32") {
-      command = `start chrome ${url}`;
-    } else if (process.platform === "darwin") {
-      command = `open -a "Google Chrome" ${url}`;
-    } else {
-      command = `xdg-open ${url}`;
-    }
+      // Open the browser - specifically target chrome on Windows if possible
+      let command;
+      if (process.platform === "win32") {
+        command = `start chrome ${url}`;
+      } else if (process.platform === "darwin") {
+        command = `open -a "Google Chrome" ${url}`;
+      } else {
+        command = `xdg-open ${url}`;
+      }
 
-    exec(command, (err) => {
-      if (err) {
-        // Fallback to default opener if chrome fails
-        const fallback =
-          process.platform === "darwin"
-            ? "open"
-            : process.platform === "win32"
-              ? "start"
-              : "xdg-open";
-        exec(`${fallback} ${url}`);
+      exec(command, (err) => {
+        if (err) {
+          // Fallback to default opener if chrome fails
+          const fallback =
+            process.platform === "darwin"
+              ? "open"
+              : process.platform === "win32"
+                ? "start"
+                : "xdg-open";
+          exec(`${fallback} ${url}`);
+        }
+      });
+    })
+    .on("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        console.log(`[INFO] Port ${port} is busy, trying ${port + 1}...`);
+        startServer(port + 1);
+      } else {
+        console.error("[ERROR] Server error:", err);
       }
     });
-  }).on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.log(`[INFO] Port ${port} is busy, trying ${port + 1}...`);
-      startServer(port + 1);
-    } else {
-      console.error('[ERROR] Server error:', err);
-    }
-  });
 };
 
 startServer(PORT);

@@ -53,10 +53,21 @@ def parse_files(paths):
     rows = []
     for path in paths:
         if path.endswith(".csv"):
-            with open(path, newline="", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    rows.append(row)
+            # Try multiple encodings — some CSVs are UTF-16 or Latin-1
+            content = None
+            for enc in ("utf-8-sig", "utf-16", "latin-1"):
+                try:
+                    with open(path, "r", newline="", encoding=enc) as f:
+                        content = f.read()
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+            if content is None:
+                print(f"[WARN] Could not decode {path} with any encoding, skipping")
+                continue
+            reader = csv.DictReader(content.splitlines())
+            for row in reader:
+                rows.append(row)
         else:
             import openpyxl as ox
             wb = ox.load_workbook(path, data_only=True)

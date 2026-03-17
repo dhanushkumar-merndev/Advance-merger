@@ -115,15 +115,45 @@ async function copyServiceAccountEmail() {
 
 // ─── SHEETJS LOADER ────────────────────────────────────────────────────────
 async function loadSheetJS() {
-  if (typeof XLSX !== "undefined") return;
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src =
-      "https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js";
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
+  if (typeof XLSX !== "undefined" && XLSX && XLSX.utils) return;
+
+  // List of sources to try — local first, then CDN
+  const sources = [
+    "./node_modules/xlsx/dist/xlsx.full.min.js",
+    "https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js",
+    "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js",
+  ];
+
+  for (const src of sources) {
+    try {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.onload = () => {
+          // Verify XLSX global is actually available
+          if (typeof XLSX !== "undefined" && XLSX && XLSX.utils) {
+            console.log("[SheetJS] Loaded successfully from:", src);
+            resolve();
+          } else {
+            reject(
+              new Error("XLSX global not available after loading from: " + src),
+            );
+          }
+        };
+        script.onerror = () =>
+          reject(new Error("Failed to load script: " + src));
+        document.head.appendChild(script);
+      });
+      return; // Success — exit
+    } catch (e) {
+      console.warn("[SheetJS]", e.message);
+      // Try next source
+    }
+  }
+
+  throw new Error(
+    "Could not load SheetJS (XLSX) library from any source. Check your internet connection.",
+  );
 }
 
 function parseFileHeaders(file) {
@@ -131,12 +161,19 @@ function parseFileHeaders(file) {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
+        console.log(
+          `[DEBUG] parseFileHeaders: loading SheetJS for ${file.name}`,
+        );
         await loadSheetJS();
+        if (typeof XLSX === "undefined") {
+          throw new Error("SheetJS (XLSX) library failed to load.");
+        }
         const data = new Uint8Array(e.target.result);
-        // Read full workbook so we can inspect all sheets
+        console.log(
+          `[DEBUG] parseFileHeaders: reading workbook (${data.length} bytes)`,
+        );
         const wb = XLSX.read(data, { type: "array" });
 
-        // Collect headers from all sheets (union, preserving first-seen order)
         const seen = new Set();
         const headers = [];
         for (const name of wb.SheetNames) {
@@ -153,13 +190,19 @@ function parseFileHeaders(file) {
             }
           }
         }
-
+        console.log(
+          `[DEBUG] parseFileHeaders: found ${headers.length} unique headers`,
+        );
         resolve({ headers: headers, fileName: file.name });
       } catch (err) {
+        console.error(`[DEBUG] parseFileHeaders error for ${file.name}:`, err);
         reject(err);
       }
     };
-    reader.onerror = reject;
+    reader.onerror = (err) => {
+      console.error(`[DEBUG] FileReader error for ${file.name}:`, err);
+      reject(new Error("FileReader error: " + err.message));
+    };
     reader.readAsArrayBuffer(file);
   });
 }
@@ -171,6 +214,12 @@ const STATE = {
   campaigns: JSON.parse(localStorage.getItem("dmp_campaigns") || "[]"),
   runs: JSON.parse(localStorage.getItem("dmp_runs") || "0"),
   currentMode: 1,
+  reports: {
+    // ← ADD THIS
+    selectedFiles: [],
+    campaigns: [],
+    ordering: [],
+  },
   editingTemplate: null,
   editingGroup: null,
   editingCampaign: null,
@@ -504,7 +553,7 @@ async function syncGroupsWithFolder() {
   try {
     const subDir = await STATE.folderHandle.getDirectoryHandle(
       "source_groups",
-      { create: true },
+      { create: false },
     );
     const groups = [];
     for await (const [name, handle] of subDir.entries()) {
@@ -534,7 +583,7 @@ async function syncCampaignsWithFolder() {
   if (!STATE.folderHandle) return;
   try {
     const subDir = await STATE.folderHandle.getDirectoryHandle("campaigns", {
-      create: true,
+      create: false,
     });
     const campaigns = [];
     for await (const [name, handle] of subDir.entries()) {
@@ -580,7 +629,7 @@ async function syncTemplatesWithFolder() {
   if (!STATE.folderHandle) return;
   try {
     const tplDir = await STATE.folderHandle.getDirectoryHandle("templates", {
-      create: true,
+      create: false,
     });
     const templates = [];
     for await (const [name, handle] of tplDir.entries()) {
@@ -2402,6 +2451,7 @@ async function scanFolder() {
   refreshIcons();
 
   STATE._scannedInputFileNames = [];
+  let firstError = null;
 
   try {
     await loadSheetJS();
@@ -2409,41 +2459,48 @@ async function scanFolder() {
     const allCols = new Set();
     const filesSeen = [];
     const SUPPORTED = [".csv", ".xlsx", ".xls", ".tsv", ".txt"];
-    const dirsToSearch = [STATE.folderHandle];
     let inputDirHandle = null;
 
     // Detect input folder
     for await (const [name, handle] of STATE.folderHandle.entries()) {
       if (handle.kind === "directory" && name === "input") {
-        dirsToSearch.push(handle);
         inputDirHandle = handle;
       }
     }
 
-    // Scan files
-    for (const dir of dirsToSearch) {
-      for await (const [fname, fh] of dir.entries()) {
-        if (fh.kind !== "file") continue;
+    // Recursive scan helper
+    async function scanRecursive(dirHandle, currentPath = "") {
+      for await (const [name, handle] of dirHandle.entries()) {
+        const fullPath = currentPath ? `${currentPath}/${name}` : name;
+        if (handle.kind === "directory") {
+          await scanRecursive(handle, fullPath);
+        } else if (handle.kind === "file") {
+          const ext = name.toLowerCase().slice(name.lastIndexOf("."));
+          if (!SUPPORTED.includes(ext)) continue;
 
-        const ext = fname.toLowerCase().slice(fname.lastIndexOf("."));
-        if (!SUPPORTED.includes(ext)) continue;
+          try {
+            statusEl.textContent = `Reading ${fullPath}...`;
+            const file = await handle.getFile();
+            const { headers } = await parseFileHeaders(file);
+            headers.forEach((h) => allCols.add(h));
+            filesSeen.push({ name: fullPath, count: headers.length });
 
-        try {
-          statusEl.textContent = `Reading ${fname}...`;
-
-          const file = await fh.getFile();
-          const { headers } = await parseFileHeaders(file);
-
-          headers.forEach((h) => allCols.add(h));
-          filesSeen.push({ name: fname, count: headers.length });
-
-          if (dir === inputDirHandle) {
-            STATE._scannedInputFileNames.push(fname);
+            // Only move files that are in the root of the input folder
+            if (dirHandle === inputDirHandle) {
+              STATE._scannedInputFileNames.push(name);
+            }
+          } catch (e) {
+            console.warn(`Error reading ${fullPath}`, e);
+            if (!firstError) firstError = e;
           }
-        } catch (e) {
-          console.warn(`Error reading ${fname}`, e);
         }
       }
+    }
+
+    if (inputDirHandle) {
+      await scanRecursive(inputDirHandle);
+    } else {
+      toast("No 'input' folder found in project", "warning");
     }
 
     // Restore button properly (IMPORTANT FIX)
@@ -2453,8 +2510,12 @@ async function scanFolder() {
     refreshIcons();
 
     if (allCols.size === 0) {
-      statusEl.textContent = "No headers detected";
-      toast("No columns found", "error");
+      statusEl.textContent =
+        "No headers detected" + (firstError ? `: ${firstError.message}` : "");
+      toast(
+        "No columns found" + (firstError ? `: ${firstError.message}` : ""),
+        "error",
+      );
     } else {
       showDiscoveredCols([...allCols], filesSeen);
 
@@ -2470,7 +2531,8 @@ async function scanFolder() {
     scanBtn.disabled = false;
     refreshIcons();
 
-    statusEl.textContent = "Scan failed";
+    statusEl.textContent = "Scan failed: " + e.message;
+    toast("Scan failed: " + e.message, "error");
   }
 }
 
@@ -2552,7 +2614,7 @@ async function readSampleFile(input) {
           }
         }
       } catch (e) {
-        toast(`Could not read ${file.name}`, "error");
+        toast(`Could not read ${file.name}: ${e.message}`, "error");
       }
     }
     if (allCols.size > 0) {
@@ -3133,8 +3195,43 @@ async function saveActiveCampaignAsBaseline() {
     await writable.write(ab);
     await writable.close();
 
+    // ── Accumulate duplicates into baseline ──
+    let totalDupsCount = 0;
+    try {
+      // Load existing baseline duplicates
+      let existingDups = [];
+      const baseDupFilename = filename.replace(".xlsx", "_duplicates.json");
+      try {
+        const existingDupHandle = await baselinesDir.getFileHandle(baseDupFilename);
+        const existingDupFile = await existingDupHandle.getFile();
+        existingDups = JSON.parse(await existingDupFile.text());
+      } catch (e) { /* no existing baseline dups */ }
+
+      // Load today's duplicates from output/
+      let todayDups = [];
+      try {
+        const outDir = await STATE.folderHandle.getDirectoryHandle("output");
+        const todayDupName = STATE._activeOutputName.replace(".xlsx", "_duplicates.json");
+        const todayDupHandle = await outDir.getFileHandle(todayDupName);
+        const todayDupFile = await todayDupHandle.getFile();
+        todayDups = JSON.parse(await todayDupFile.text());
+      } catch (e) { /* no today dups */ }
+
+      // Merge: existing baseline dups + today's dups
+      const combinedDups = [...existingDups, ...todayDups];
+      totalDupsCount = combinedDups.length;
+
+      // Save accumulated duplicates to baselines/
+      const dupHandle = await baselinesDir.getFileHandle(baseDupFilename, { create: true });
+      const dupWritable = await dupHandle.createWritable();
+      await dupWritable.write(JSON.stringify(combinedDups, null, 2));
+      await dupWritable.close();
+    } catch (dupErr) {
+      console.warn("Could not save baseline duplicates:", dupErr);
+    }
+
     toast(
-      `Baseline saved — ${totalRowsCount} total rows in templates/baselines/${filename}`,
+      `Baseline saved — ${totalRowsCount} rows, ${totalDupsCount} duplicates in templates/baselines/${filename}`,
       "success",
     );
   } catch (e) {
@@ -3142,6 +3239,7 @@ async function saveActiveCampaignAsBaseline() {
     toast("Failed: " + e.message, "error");
   }
 }
+
 
 async function deleteOutputFile(name) {
   if (!confirm(`Permanently delete "${name}"?`)) return;
@@ -4334,7 +4432,7 @@ async function refreshPreview() {
             <table id="${tableId}">
               <thead><tr>${t.columns
                 .map((c) => {
-                  const alignClass = getAlignmentClass(c.fmt);
+                  const alignClass = getSmartAlignmentClass(c.fmt);
                   return `<th class="${alignClass}">${esc(c.name)}</th>`;
                 })
                 .join("")}</tr></thead>
@@ -4342,7 +4440,7 @@ async function refreshPreview() {
                 <tr>${t.columns
                   .map((c) => {
                     const val = formatTableValue(`${esc(c.name)}_1`, c.name);
-                    const alignClass = getAlignmentClass(c.fmt);
+                    const alignClass = getSmartAlignmentClass(c.fmt);
                     const isDate =
                       c.name.toLowerCase().includes("time") ||
                       c.name.toLowerCase().includes("date");
@@ -4352,7 +4450,7 @@ async function refreshPreview() {
                 <tr>${t.columns
                   .map((c) => {
                     const val = formatTableValue(`${esc(c.name)}_2`, c.name);
-                    const alignClass = getAlignmentClass(c.fmt);
+                    const alignClass = getSmartAlignmentClass(c.fmt);
                     const isDate =
                       c.name.toLowerCase().includes("time") ||
                       c.name.toLowerCase().includes("date");
@@ -5445,11 +5543,11 @@ async function refreshReportsFiles() {
 }
 
 function toggleReportFile(name) {
-  const idx = STATE.reports.selectedFiles.indexOf(name);
-  if (idx >= 0) {
-    STATE.reports.selectedFiles.splice(idx, 1);
+  // Single-select: only one file at a time
+  if (STATE.reports.selectedFiles.includes(name)) {
+    STATE.reports.selectedFiles = [];
   } else {
-    STATE.reports.selectedFiles.push(name);
+    STATE.reports.selectedFiles = [name];
   }
   refreshReportsFiles();
   // Hide step 2 if files changed
@@ -5771,9 +5869,21 @@ function resetRangeAnalytics() {
 async function displayDuplicationHistory(filename) {
   if (!STATE.folderHandle) return;
   const dupFilename = filename.replace(".xlsx", "_duplicates.json");
+
+  // Determine if this is a baseline file
+  const fileInfo = STATE._outputFiles.find((f) => f.name === filename);
+  const isBaseline = fileInfo ? fileInfo.isBaseline : false;
+
   try {
-    const outDir = await STATE.folderHandle.getDirectoryHandle("output");
-    const fileHandle = await outDir.getFileHandle(dupFilename);
+    let dir;
+    if (isBaseline) {
+      // Read duplicates from templates/baselines/
+      const tDir = await STATE.folderHandle.getDirectoryHandle("templates");
+      dir = await tDir.getDirectoryHandle("baselines");
+    } else {
+      dir = await STATE.folderHandle.getDirectoryHandle("output");
+    }
+    const fileHandle = await dir.getFileHandle(dupFilename);
     const file = await fileHandle.getFile();
     const data = JSON.parse(await file.text());
 
@@ -5802,7 +5912,7 @@ async function displayDuplicationHistory(filename) {
       let html = `<div style="position:sticky; top:0; background:var(--surface1); z-index:10; padding:10px 0; border-bottom:1px solid var(--border); margin-bottom:15px;">
         <div style="display:flex; align-items:center; gap:15px; margin-bottom:15px;">
           <div style="font-size:12px; color:var(--text2); font-weight:600;">
-             Total Merge Duplicates: <span style="color:var(--blue); font-size:14px;">${data.length}</span>
+           
           </div>
           <label class="history-filter-pill" style="margin-left:auto;">
             <input type="checkbox" onchange="toggleDuplicationBaseline(this.checked)" ${STATE.duplicationModal.hideBaseline ? "checked" : ""}> 
