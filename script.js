@@ -3156,6 +3156,17 @@ async function deleteOutputFile(name) {
       dir = await STATE.folderHandle.getDirectoryHandle("output");
     }
     await dir.removeEntry(name);
+
+    // Also delete linked duplicates JSON if it exists
+    if (!f.isBaseline && name.endsWith(".xlsx")) {
+      const dupName = name.replace(".xlsx", "_duplicates.json");
+      try {
+        await dir.removeEntry(dupName);
+      } catch (e) {
+        /* ignore if missing */
+      }
+    }
+
     toast("File deleted", "success");
     if (STATE._activeOutputName === name) {
       document.getElementById("outputViewerContent").innerHTML =

@@ -283,34 +283,22 @@
         <div class="card" style="margin-top: 24px;">
           <div class="card-title">How It Works</div>
           <div class="how-steps">
-            <div class="hw-step">
-              <div
-                class="hw-num"
-                onclick="linkFolder()"
-                style="cursor: pointer"
-              >
-                1
-              </div>
-              <div
-                class="hw-text"
-                onclick="linkFolder()"
-                style="cursor: pointer"
-              >
-                Link project folder
-              </div>
+            <div class="hw-step" onclick="linkFolder()">
+              <div class="hw-num">1</div>
+              <div class="hw-text">Link project folder</div>
             </div>
             <div class="hw-arr">→</div>
-            <div class="hw-step">
+            <div class="hw-step" onclick="navigate('template')">
               <div class="hw-num">2</div>
               <div class="hw-text">Create templates</div>
             </div>
             <div class="hw-arr">→</div>
-            <div class="hw-step">
+            <div class="hw-step" onclick="navigate('sources')">
               <div class="hw-num">3</div>
               <div class="hw-text">Build source groups</div>
             </div>
             <div class="hw-arr">→</div>
-            <div class="hw-step">
+            <div class="hw-step" onclick="navigate('campaigns')">
               <div class="hw-num">4</div>
               <div class="hw-text">Create campaign → Export Excel</div>
             </div>

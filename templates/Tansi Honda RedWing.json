@@ -1,12 +1,42 @@
 {
   "name": "Tansi Honda RedWing",
   "columns": [
-    ["Date", "0", "a", "z"],
-    ["Hirise Mobility", "0", "0"],
-    ["Campaign", "campaign_name", "l"],
-    ["Name", "full_name", "h", "j", "u", "x", "l"],
-    ["Contact No", "phone_number", "d"],
-    ["Time of Lead Assign", "0", "b", "z"],
+    [
+      "Date",
+      "0",
+      "a",
+      "z"
+    ],
+    [
+      "Hirise Mobility",
+      "0",
+      "0"
+    ],
+    [
+      "Campaign",
+      "campaign_name",
+      "l"
+    ],
+    [
+      "Name",
+      "full_name",
+      "h",
+      "j",
+      "u",
+      "x",
+      "l"
+    ],
+    [
+      "Contact No",
+      "phone_number",
+      "d"
+    ],
+    [
+      "Time of Lead Assign",
+      "0",
+      "b",
+      "z"
+    ],
     [
       "Assign",
       "select_your_nearest_branch_*",
@@ -20,11 +50,32 @@
         "panathur": "Vinod Kumar R"
       }
     ],
-    ["Remark", "0", "0", "l", "h"],
-    ["Location", "select_your_nearest_branch_*", "l", "h", "u", "x", "j"],
-    ["Lead Created Time", "created_time", "z", "n"]
+    [
+      "Remark",
+      "0",
+      "0",
+      "l",
+      "h"
+    ],
+    [
+      "Location",
+      "select_your_nearest_branch_*",
+      "l",
+      "h",
+      "u",
+      "x",
+      "j"
+    ],
+    [
+      "Lead Created Time",
+      "created_time",
+      "z",
+      "n"
+    ]
   ],
-  "unique_columns": ["Contact No"],
+  "unique_columns": [
+    "Contact No"
+  ],
   "sort_column": "Lead Created Time",
   "sort_order": "asc",
   "google_links": [

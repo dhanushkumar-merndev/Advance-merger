@@ -2809,3 +2809,74 @@ select.input {
   margin: 0;
   accent-color: var(--blue);
 }
+
+/* ═══ HOW IT WORKS INTERACTIVITY ═══ */
+.how-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface2);
+  padding: 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+}
+
+.hw-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: white;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.hw-step:hover {
+  transform: translateY(-3px) scale(1.02);
+  border-color: var(--blue);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.12);
+}
+
+.hw-step:active {
+  transform: translateY(-1px) scale(1);
+}
+
+.hw-step:hover .hw-num {
+  background: var(--blue);
+  color: white;
+  transform: scale(1.1);
+}
+
+.hw-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface3);
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.hw-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.hw-arr {
+  color: var(--text3);
+  font-weight: 700;
+  font-size: 14px;
+  opacity: 0.5;
+}
