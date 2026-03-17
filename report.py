@@ -89,18 +89,29 @@ def unique_campaigns(rows):
             out.append(name)
     return out
 
-def parse_date(val):
+# Global or inferred format
+DATE_FMT = "DMY" # Default
+
+def parse_date(val, fmt=None):
     if not val: return None
     s = str(val).strip()
     # YYYY-MM-DD
     m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
     if m: return date(int(m[1]), int(m[2]), int(m[3]))
-    # DD/MM/YYYY
-    m = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", s)
-    if m: return date(int(m[3]), int(m[2]), int(m[1]))
+    
+    # Slash or hyphen separated: DD/MM/YYYY or MM/DD/YYYY
+    m = re.match(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", s)
+    if m:
+        use_fmt = fmt or DATE_FMT
+        if use_fmt == "MDY":
+            # MM/DD/YYYY
+            return date(int(m[3]), int(m[1]), int(m[2]))
+        else:
+            # DD/MM/YYYY
+            return date(int(m[3]), int(m[2]), int(m[1]))
     return None
 
-def build_lookup(rows, campaigns):
+def build_lookup(rows, campaigns, fmt="DMY"):
     camp_set = set(campaigns)
     # lookup[campaign][day_int] = {results, spent}
     lookup = {c: defaultdict(lambda: {"results": 0, "spent": 0.0}) for c in campaigns}
@@ -112,7 +123,7 @@ def build_lookup(rows, campaigns):
         name = str(r_norm.get(COL_CAMPAIGN.lower()) or "").strip()
         if name not in camp_set: continue
         
-        d = parse_date(r_norm.get(COL_DAY.lower()))
+        d = parse_date(r_norm.get(COL_DAY.lower()), fmt=fmt)
         if not d: continue
 
         try: 
@@ -134,12 +145,62 @@ def build_lookup(rows, campaigns):
 
     return lookup
 
-def infer_month_year(rows):
+def infer_month_year_and_format(rows):
+    """
+    Scans rows to find:
+    1. The month and year
+    2. Whether the date format is MDY or DMY (if ambiguous, defaults to DMY or guesses by today's month)
+    """
+    detected_fmt = "DMY"
+    has_ambiguity = True
+    
+    possible_dates = []
     for r in rows:
-        d = parse_date(r.get(COL_DAY))
-        if d: return d.month, d.year
+        val = r.get(COL_DAY)
+        if not val:
+            # Try lowercase if dict keys were normalized (though parse_files doesn't normalize yet)
+            val = r.get(COL_DAY.lower())
+        
+        if not val: continue
+        s = str(val).strip()
+        
+        # Check for YYYY-MM-DD first (unambiguous)
+        m_iso = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
+        if m_iso:
+            return int(m_iso[2]), int(m_iso[1]), "ISO"
+            
+        m = re.match(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", s)
+        if m:
+            v1, v2, year = int(m[1]), int(m[2]), int(m[3])
+            possible_dates.append((v1, v2, year))
+            if v1 > 12: 
+                detected_fmt = "DMY"
+                has_ambiguity = False
+                break
+            if v2 > 12:
+                detected_fmt = "MDY"
+                has_ambiguity = False
+                break
+
+    # If still ambiguous, try to guess based on current month if either v1 or v2 matches
+    if has_ambiguity and possible_dates:
+        curr_month = date.today().month
+        v1, v2, year = possible_dates[0]
+        if v1 == curr_month and v2 != curr_month:
+            detected_fmt = "MDY"
+        elif v2 == curr_month and v1 != curr_month:
+            detected_fmt = "DMY"
+        # Else stay with default DMY
+
+    if possible_dates:
+        v1, v2, year = possible_dates[0]
+        if detected_fmt == "MDY":
+            return v1, year, "MDY"
+        else:
+            return v2, year, "DMY"
+
     t = date.today()
-    return t.month, t.year
+    return t.month, t.year, "DMY"
 
 def days_in_month(month, year):
     if month == 12: return (date(year+1,1,1) - date(year,12,1)).days
@@ -310,8 +371,8 @@ def main():
         else:
             ordered = campaigns
 
-    month, year = infer_month_year(rows)
-    lookup = build_lookup(rows, ordered)
+    month, year, date_fmt = infer_month_year_and_format(rows)
+    lookup = build_lookup(rows, ordered, fmt=date_fmt)
     out_path = args.out if args.out else f"campaign_report_{year}_{month:02d}.xlsx"
     
     build_excel(ordered, lookup, month, year, out_path)

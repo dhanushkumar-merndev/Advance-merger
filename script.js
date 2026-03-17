@@ -1316,7 +1316,8 @@ async function editGroup(i) {
   const g = STATE.groups[i];
   document.getElementById("groupPanelTitle").textContent = "Edit Source Group";
   document.getElementById("grpName").value = g.name;
-  document.getElementById("grpTemplate").value = g.templateName || ""; // Modified
+  populateGrpTemplateDropdown(g.templateName);
+  document.getElementById("grpTemplate").value = g.templateName || "";
   const list = document.getElementById("grpSources"); // Changed from grpSrcList to grpSources
   list.innerHTML = g.sources
     .map(
@@ -2795,7 +2796,7 @@ function showDiscoveredCols(cols, filesSeen = []) {
           .join("")}</div>
        </div>`
     : "";
-  area.innerHTML = `<div class="discovered-cols-wrap"><div class="discovered-header"><div class="discovered-title"><i data-lucide="check" class="icon"></i> ${visibleCols.length} Column(s) Found</div><button class="btn btn-ghost btn-sm" onclick="autoPopulateFromCols()">Auto-add all \u2192</button></div>${pagesHtml}<div class="discovered-hint">Click a column chip to add it as an output column</div><div class="folder-col-chips">${visibleCols.map((c) => `<div class="col-chip" onclick="addTplColumnFromName('${escAttr(c)}')" title="Add as output column">+ ${esc(c)}</div>`).join("")}</div></div>`;
+  area.innerHTML = `<div class="discovered-cols-wrap"><div class="discovered-header"><div class="discovered-title"><i data-lucide="check" class="icon"></i> ${visibleCols.length} Column(s) Found</div></div>${pagesHtml}<div class="discovered-hint">Click a column chip to add it as an output column</div><div class="folder-col-chips">${visibleCols.map((c) => `<div class="col-chip" onclick="addTplColumnFromName('${escAttr(c)}')" title="Add as output column">+ ${esc(c)}</div>`).join("")}</div></div>`;
 }
 
 function toggleTemplatePage(cb) {
@@ -3202,27 +3203,37 @@ async function saveActiveCampaignAsBaseline() {
       let existingDups = [];
       const baseDupFilename = filename.replace(".xlsx", "_duplicates.json");
       try {
-        const existingDupHandle = await baselinesDir.getFileHandle(baseDupFilename);
+        const existingDupHandle =
+          await baselinesDir.getFileHandle(baseDupFilename);
         const existingDupFile = await existingDupHandle.getFile();
         existingDups = JSON.parse(await existingDupFile.text());
-      } catch (e) { /* no existing baseline dups */ }
+      } catch (e) {
+        /* no existing baseline dups */
+      }
 
       // Load today's duplicates from output/
       let todayDups = [];
       try {
         const outDir = await STATE.folderHandle.getDirectoryHandle("output");
-        const todayDupName = STATE._activeOutputName.replace(".xlsx", "_duplicates.json");
+        const todayDupName = STATE._activeOutputName.replace(
+          ".xlsx",
+          "_duplicates.json",
+        );
         const todayDupHandle = await outDir.getFileHandle(todayDupName);
         const todayDupFile = await todayDupHandle.getFile();
         todayDups = JSON.parse(await todayDupFile.text());
-      } catch (e) { /* no today dups */ }
+      } catch (e) {
+        /* no today dups */
+      }
 
       // Merge: existing baseline dups + today's dups
       const combinedDups = [...existingDups, ...todayDups];
       totalDupsCount = combinedDups.length;
 
       // Save accumulated duplicates to baselines/
-      const dupHandle = await baselinesDir.getFileHandle(baseDupFilename, { create: true });
+      const dupHandle = await baselinesDir.getFileHandle(baseDupFilename, {
+        create: true,
+      });
       const dupWritable = await dupHandle.createWritable();
       await dupWritable.write(JSON.stringify(combinedDups, null, 2));
       await dupWritable.close();
@@ -3239,7 +3250,6 @@ async function saveActiveCampaignAsBaseline() {
     toast("Failed: " + e.message, "error");
   }
 }
-
 
 async function deleteOutputFile(name) {
   if (!confirm(`Permanently delete "${name}"?`)) return;
@@ -5530,14 +5540,19 @@ async function refreshReportsFiles() {
     .join("");
 
   // Add scan button if any files selected
-  if (STATE.reports.selectedFiles.length > 0) {
-    list.innerHTML += `
-      <div style="margin-top:15px">
-        <button class="btn btn-primary" style="width:100%" onclick="scanReportsCampaigns()">
-          <i data-lucide="search" class="icon"></i> Scan Selected Files for Campaigns
-        </button>
-      </div>
-    `;
+  const actionArea = document.getElementById("reportsActionArea");
+  if (actionArea) {
+    if (STATE.reports.selectedFiles.length > 0) {
+      actionArea.innerHTML = `
+        <div style="margin-top:15px">
+          <button class="btn btn-primary" style="width:100%" onclick="scanReportsCampaigns()">
+            <i data-lucide="search" class="icon"></i> Scan Selected Files for Campaigns
+          </button>
+        </div>
+      `;
+    } else {
+      actionArea.innerHTML = "";
+    }
   }
   refreshIcons();
 }
@@ -5671,7 +5686,29 @@ async function generateFinalReport() {
         const a = document.createElement("a");
         a.href = "/" + outPath;
         a.download = outPath;
+
+        // required for some browsers
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
+
+        // ✅ RESET UI AFTER DOWNLOAD
+        setTimeout(() => {
+          // hide result section
+          document.getElementById("reportsOutput").style.display = "none";
+
+          // clear message
+          document.getElementById("reportsResultMsg").textContent = "";
+
+          // hide button
+          btn.style.display = "none";
+
+          // reset state (important)
+          STATE.reports.selectedFiles = [];
+          STATE.reports.ordering = [];
+
+          toast("Ready for next report", "info");
+        }, 300);
       };
       toast("Report generated!", "success");
     } else {
