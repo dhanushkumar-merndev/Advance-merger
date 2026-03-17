@@ -1438,6 +1438,27 @@ select.input {
   display: flex;
 }
 
+.load-more-container {
+  position: sticky;
+  left: 0;
+  width: 100%;
+  bottom: 0;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(to top, white 10%, transparent);
+  pointer-events: none;
+  z-index: 100;
+  margin-top: -60px;
+}
+.load-more-container button {
+  pointer-events: all;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: white;
+  min-width: 160px;
+}
+
 /* ═══ OUTPUT VIEWER LAYOUT ═══ */
 .output-table-wrap::-webkit-scrollbar {
   width: 8px;

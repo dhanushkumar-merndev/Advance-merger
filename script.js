@@ -3253,8 +3253,30 @@ async function saveActiveCampaignAsBaseline() {
         /* no today dups */
       }
 
-      // Merge: existing baseline dups + today's dups
-      const combinedDups = [...existingDups, ...todayDups];
+      // Merge: existing baseline dups + today's dups (DEDUPLICATED)
+      const dupSeen = new Set();
+      const combinedDups = [];
+
+      // Helper to make a unique key for a duplicate entry
+      const getDupKey = (d) =>
+        `${d.source}|${d.row_index}|${d.primary_source}|${d.primary_index}|${d.sheetName}`;
+
+      existingDups.forEach((d) => {
+        const key = getDupKey(d);
+        if (!dupSeen.has(key)) {
+          dupSeen.add(key);
+          combinedDups.push(d);
+        }
+      });
+
+      todayDups.forEach((d) => {
+        const key = getDupKey(d);
+        if (!dupSeen.has(key)) {
+          dupSeen.add(key);
+          combinedDups.push(d);
+        }
+      });
+
       totalDupsCount = combinedDups.length;
 
       // Save accumulated duplicates to baselines/
@@ -3427,7 +3449,7 @@ function switchSheet(btn, idx) {
 
       <div class="output-table-wrap" id="outputTableWrap">
         <table id="viewerTable"><thead><tr id="tableHead"></tr></thead><tbody id="tableBody"></tbody></table>
-        <div id="loadMoreContainer" style="padding:20px;text-align:center;display:none"><button class="btn btn-ghost" onclick="renderMoreRows()">Load More Rows</button></div>
+        <div id="loadMoreContainer" class="load-more-container" style="display:none"><button class="btn btn-ghost" onclick="renderMoreRows()">Load More Rows</button></div>
       </div>
       <button class="close-expand" onclick="toggleExpandTable()"><i data-lucide="x" class="icon"></i></button>
     </div>
@@ -3446,6 +3468,9 @@ function switchSheet(btn, idx) {
   let headHtml = `<th style="width:40px;text-align:center;color:var(--text3);background:var(--surface2);position:sticky;left:0;z-index:10;user-select:none;pointer-events:none;">#</th>`;
   headHtml += headers
     .map((h) => {
+      // Hide system columns from UI
+      if (h === "[SYSTEM] SOURCE SHEET" || h === "[SYSTEM] PAGE") return "";
+
       const activeTpl = STATE.templates.find(
         (t) => t.name === STATE._activeTemplateName,
       );
@@ -3487,17 +3512,21 @@ function renderMoreRows() {
         const rowIdx = start + i + 1; // 1-based indexing for data rows
         const cellsHtml = headers
           .map((h, j) => {
+            const colName = String(h);
+            // Hide system columns from UI
+            if (colName === "[SYSTEM] SOURCE SHEET" || colName === "[SYSTEM] PAGE") return "";
+
             const rawVal = row[j] !== undefined ? row[j] : "";
-            const formatted = formatTableValue(rawVal, String(h));
+            const formatted = formatTableValue(rawVal, colName);
             const activeTpl = STATE.templates.find(
               (t) => t.name === STATE._activeTemplateName,
             );
-            const tplCol = activeTpl?.columns?.find((c) => c.name === h);
+            const tplCol = activeTpl?.columns?.find((c) => c.name === colName);
             const fmt = tplCol ? tplCol.fmt : "";
-            const alignClass = getSmartAlignmentClass(h, fmt);
+            const alignClass = getSmartAlignmentClass(colName, fmt);
             const isDate =
-              String(h).toLowerCase().includes("time") ||
-              String(h).toLowerCase().includes("date");
+              colName.toLowerCase().includes("time") ||
+              colName.toLowerCase().includes("date");
             const isNumeric =
               typeof rawVal === "number" ||
               (!isNaN(rawVal) && String(rawVal).trim() !== "");
@@ -3514,7 +3543,7 @@ function renderMoreRows() {
 
   STATE._renderedRowCount = end;
   const lm = document.getElementById("loadMoreContainer");
-  if (lm) lm.style.display = end < rows.length ? "block" : "none";
+  if (lm) lm.style.display = end < rows.length ? "flex" : "none";
 }
 
 function formatTableValue(val, colName) {
@@ -3616,13 +3645,16 @@ function copyTableToClipboard() {
   // Data only, no headers
   let text = "";
 
-  // Format each row (handle undefined/null cells)
+  // Format each row (skip system columns)
   for (const row of rows) {
     const line = headers
-      .map((_, i) => {
+      .map((h, i) => {
+        const colName = String(h);
+        if (colName === "[SYSTEM] SOURCE SHEET" || colName === "[SYSTEM] PAGE") return null;
         const val = row[i];
         return val === null || val === undefined ? "" : String(val);
       })
+      .filter(v => v !== null)
       .join("\t");
     text += line + "\n";
   }
@@ -4933,10 +4965,16 @@ async function readLocalData(path, template, pagesToInclude = "") {
           .filter(Boolean)
       : [];
 
+    const fileName = parts[parts.length - 1].trim().toLowerCase();
+    const isFileSelected = allowedPages.includes(fileName);
+
     for (const name of wb.SheetNames) {
+      const sheetName = name.trim().toLowerCase();
+      // Allow if specific sheet is selected OR the entire file is selected
       if (
         allowedPages.length > 0 &&
-        !allowedPages.includes(name.trim().toLowerCase())
+        !allowedPages.includes(sheetName) &&
+        !isFileSelected
       ) {
         continue;
       }
@@ -5155,8 +5193,16 @@ async function runDirectMerge() {
               const fn = f.toLowerCase();
               const hasTplName =
                 fn.includes(slug) || fn.includes(tname.toLowerCase());
+              // Also include if the file is explicitly in the template's selected pages
+              const isSelectedPage =
+                template.pages &&
+                template.pages.some((p) => {
+                  const cleanP = p.toLowerCase();
+                  return fn === cleanP || fn.endsWith("/" + cleanP);
+                });
+
               const isOldOutput = /_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}/.test(fn);
-              return hasTplName && !isOldOutput;
+              return (hasTplName || isSelectedPage) && !isOldOutput;
             })
             .map((f) => ({ path: `input/${f}`, label: f }));
         }
@@ -5284,12 +5330,11 @@ async function runDirectMerge() {
       // Clean up internal metadata before Excel export
       const exportRows = rows.map((r) => {
         const clean = { ...r };
-        if (clean.__dmp_page) {
-          clean["[System] Source Sheet"] = clean.__dmp_page;
-        }
         delete clean.__dmp_src;
         delete clean.__dmp_idx;
         delete clean.__dmp_page;
+        delete clean["[SYSTEM] SOURCE SHEET"];
+        delete clean["[SYSTEM] PAGE"];
         return clean;
       });
 
