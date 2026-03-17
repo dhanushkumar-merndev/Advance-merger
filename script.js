@@ -936,7 +936,7 @@ function openCreateTemplate() {
   document.getElementById("colCount").textContent = "0";
   STATE.currentTemplateLinks = [];
   STATE._scannedInputFileNames = [];
-  STATE.selectedTemplatePages = [];
+  STATE.selectedTemplatePages = null;
   renderTemplateLinkList();
   addTplColumn();
   navigate("template");
@@ -946,7 +946,7 @@ function openCreateTemplate() {
 function editTemplate(i) {
   STATE.editingTemplate = i;
   STATE.discoveredCols = [];
-  STATE.selectedTemplatePages = [];
+  STATE.selectedTemplatePages = null;
   const t = STATE.templates[i];
   document.getElementById("templatePanelTitle").textContent = "Edit Template";
   document.getElementById("tplName").value = t.name;
@@ -2469,37 +2469,30 @@ async function scanFolder() {
       }
     }
 
-    // Recursive scan helper
-    async function scanRecursive(dirHandle, currentPath = "") {
-      for await (const [name, handle] of dirHandle.entries()) {
-        const fullPath = currentPath ? `${currentPath}/${name}` : name;
-        if (handle.kind === "directory") {
-          await scanRecursive(handle, fullPath);
-        } else if (handle.kind === "file") {
+    if (inputDirHandle) {
+      statusEl.textContent = "Scanning input/ root folder...";
+      for await (const [name, handle] of inputDirHandle.entries()) {
+        if (handle.kind === "file") {
           const ext = name.toLowerCase().slice(name.lastIndexOf("."));
           if (!SUPPORTED.includes(ext)) continue;
 
           try {
-            statusEl.textContent = `Reading ${fullPath}...`;
+            statusEl.textContent = `Reading ${name}...`;
             const file = await handle.getFile();
             const { headers } = await parseFileHeaders(file);
             headers.forEach((h) => allCols.add(h));
-            filesSeen.push({ name: fullPath, count: headers.length });
-
-            // Only move files that are in the root of the input folder
-            if (dirHandle === inputDirHandle) {
-              STATE._scannedInputFileNames.push(name);
-            }
+            filesSeen.push({
+              name: name,
+              count: headers.length,
+              columns: headers,
+            });
+            STATE._scannedInputFileNames.push(name);
           } catch (e) {
-            console.warn(`Error reading ${fullPath}`, e);
+            console.warn(`Error reading ${name}`, e);
             if (!firstError) firstError = e;
           }
         }
       }
-    }
-
-    if (inputDirHandle) {
-      await scanRecursive(inputDirHandle);
     } else {
       toast("No 'input' folder found in project", "warning");
     }
@@ -2592,7 +2585,11 @@ async function readSampleFile(input) {
       try {
         const { headers, fileName } = await parseFileHeaders(file);
         headers.forEach((h) => allCols.add(h));
-        filesSeen.push({ name: fileName, count: headers.length });
+        filesSeen.push({
+          name: fileName,
+          count: headers.length,
+          columns: headers,
+        });
 
         // Auto-upload to input/ if project linked
         if (STATE.folderHandle) {
@@ -2739,20 +2736,25 @@ function removeTemplateLink(idx) {
   toast("Link removed");
 }
 
+function cleanTplName(name) {
+  if (!name) return "";
+  let n = name;
+  if (n.startsWith("Page: ")) n = n.substring(6);
+  // Remove directory paths (e.g., "DUMMY/file.xlsx" -> "file.xlsx")
+  if (n.includes("/")) n = n.substring(n.lastIndexOf("/") + 1);
+  return n;
+}
+
 function showDiscoveredCols(cols, filesSeen = []) {
   STATE.discoveredCols = cols;
   STATE.discoveredFilesSeen = filesSeen;
-  // Initialize selectedTemplatePages if not set OR empty (to ensure explicit save)
-  if (
-    !STATE.selectedTemplatePages ||
-    STATE.selectedTemplatePages.length === 0
-  ) {
-    STATE.selectedTemplatePages = filesSeen.map((f) => {
-      let n = f.name;
-      if (n.startsWith("Page: ")) n = n.substring(6);
-      return n;
-    });
+
+  // Initialize selectedTemplatePages ONLY if it is null (first load)
+  // This allows it to stay as [] if the user unchecks everything.
+  if (STATE.selectedTemplatePages == null) {
+    STATE.selectedTemplatePages = filesSeen.map((f) => cleanTplName(f.name));
   }
+
   document.querySelectorAll(".col-card").forEach((card) => {
     const src = card.querySelector(".tpl-col-src");
     refreshFmsDropdown(card, src ? src.value : "");
@@ -2760,19 +2762,18 @@ function showDiscoveredCols(cols, filesSeen = []) {
   const area = document.getElementById("discoveredColsArea");
 
   // Compute visible columns based on selected pages
-  let visibleCols = cols;
-  if (
-    STATE.selectedTemplatePages.length > 0 &&
-    filesSeen.some((f) => f.columns)
-  ) {
+  // If selectedTemplatePages is [], visibleCols should be []
+  let visibleCols = [];
+  if (STATE.selectedTemplatePages.length > 0) {
     const allowedSet = new Set();
     filesSeen.forEach((f) => {
-      let cleanName = f.name;
-      if (cleanName.startsWith("Page: ")) cleanName = cleanName.substring(6);
+      const cleanName = cleanTplName(f.name);
       if (STATE.selectedTemplatePages.includes(cleanName) && f.columns) {
         f.columns.forEach((c) => allowedSet.add(c));
       }
     });
+
+    // We only show columns that exist in the selected pages
     visibleCols = cols.filter((c) => allowedSet.has(c));
   }
 
@@ -2784,13 +2785,11 @@ function showDiscoveredCols(cols, filesSeen = []) {
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">${filesSeen
           .map((f) => {
-            let cleanName = f.name;
-            if (cleanName.startsWith("Page: "))
-              cleanName = cleanName.substring(6);
+            const cleanName = cleanTplName(f.name);
             const isChecked = STATE.selectedTemplatePages.includes(cleanName);
             return `<label style="display:flex;align-items:center;gap:4px;font-size:11px;background:white;border:1px solid ${isChecked ? "#a7f3d0" : "#e5e7eb"};border-radius:10px;padding:4px 10px;color:${isChecked ? "var(--green)" : "var(--text3)"};cursor:pointer;user-select:none;transition:all .15s">
             <input type="checkbox" value="${escAttr(cleanName)}" ${isChecked ? "checked" : ""} onchange="toggleTemplatePage(this)" style="accent-color:var(--green)" />
-            📄 ${esc(f.name)} (${f.count} cols)
+            📄 ${esc(cleanName)} (${f.count} cols)
           </label>`;
           })
           .join("")}</div>
@@ -2818,7 +2817,35 @@ function autoPopulateFromCols() {
   toast(`Added ${STATE.discoveredCols.length} columns`, "success");
 }
 function addTplColumnFromName(name) {
-  addTplColumn({ name, src: name, fmt: "" });
+  const container = document.getElementById("tplColumns");
+  if (!container) return;
+
+  // Try to find an empty card (no name and no src)
+  const cards = container.querySelectorAll(".col-card");
+  let targetCard = null;
+  for (const card of cards) {
+    const ni = card.querySelector(".tpl-col-name");
+    const si = card.querySelector(".tpl-col-src");
+    if (ni && si && !ni.value.trim() && !si.value.trim()) {
+      targetCard = card;
+      break;
+    }
+  }
+
+  if (targetCard) {
+    const ni = targetCard.querySelector(".tpl-col-name");
+    const si = targetCard.querySelector(".tpl-col-src");
+    ni.value = name;
+    si.value = name;
+    // Trigger internal updates
+    syncFmsTags(si);
+    updateColCount();
+    refreshDedupCols();
+  } else {
+    // No empty card found, add a new one
+    addTplColumn({ name, src: name, fmt: "" });
+  }
+
   toast(`Added: ${name}`);
 }
 
@@ -4130,11 +4157,32 @@ function refreshFmsDropdown(colCard, currentSrc) {
   const dropdown = colCard.querySelector(".file-multiselect-dropdown");
   const btnLabel = colCard.querySelector(".fms-placeholder");
   if (!dropdown) return;
+
   const sel = FMS_STATE.get(colCard) || new Set();
-  const cols = STATE.discoveredCols || [];
+  const allCols = STATE.discoveredCols || [];
+  const filesSeen = STATE.discoveredFilesSeen || [];
+  const selectedPages = STATE.selectedTemplatePages || [];
+
+  // Compute allowed columns based on selected pages
+  let cols = [];
+  if (selectedPages.length === 0 && filesSeen.length === 0) {
+    // If no page info at all, show all (fallback for external URLs or legacy)
+    cols = allCols;
+  } else if (selectedPages.length > 0) {
+    const allowedSet = new Set();
+    filesSeen.forEach((f) => {
+      const cleanName = cleanTplName(f.name);
+      if (selectedPages.includes(cleanName) && f.columns) {
+        f.columns.forEach((c) => allowedSet.add(c));
+      }
+    });
+    cols = allCols.filter((c) => allowedSet.has(c));
+  }
+  // If selectedPages is [] and filesSeen is NOT empty, cols remains []
+
   if (!cols.length) {
     dropdown.innerHTML =
-      '<div style="padding:12px;font-size:12px;color:var(--text3);text-align:center">Detect columns first</div>';
+      '<div style="padding:12px;font-size:12px;color:var(--text3);text-align:center">No columns available for selected pages</div>';
   } else {
     dropdown.innerHTML = `<div class="fms-file-header">📋 Detected Columns</div>${cols.map((c) => `<div class="fms-col-item ${sel.has(c) ? "selected" : ""}" data-col="${escAttr(c)}"><span class="fms-check">${sel.has(c) ? "✓" : ""}</span>${esc(c)}</div>`).join("")}`;
   }
@@ -5768,9 +5816,88 @@ async function saveAnalyticsToFile(analytics) {
   }
 }
 
-function setAnalyticsView(view) {
-  STATE.analyticsView = view;
-  refreshAnalyticsDashboard();
+async function syncAnalyticsFromFile() {
+  if (!STATE.folderHandle) {
+    toast("Link a folder first", "error");
+    return;
+  }
+  try {
+    const fileHandle = await STATE.folderHandle.getFileHandle("leads_analytics.txt");
+    const file = await fileHandle.getFile();
+    const text = await file.text();
+
+    const lines = text.split(/\r?\n/);
+    const analytics = {};
+    let currentDate = null;
+    let currentCampaign = null;
+
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      const dateMatch = trimmed.match(/^--- DATE: (.*) ---$/);
+      if (dateMatch) {
+        currentDate = dateMatch[1];
+        analytics[currentDate] = {};
+        currentCampaign = null;
+        continue;
+      }
+
+      const campMatch = trimmed.match(/^Campaign: (.*)$/);
+      if (campMatch && currentDate) {
+        currentCampaign = campMatch[1];
+        analytics[currentDate][currentCampaign] = {};
+        continue;
+      }
+
+      const leadMatch = trimmed.match(/^-\s+(.*):\s+(\d+)\s+leads$/);
+      if (leadMatch && currentDate && currentCampaign) {
+        const group = leadMatch[1];
+        const count = parseInt(leadMatch[2], 10);
+        analytics[currentDate][currentCampaign][group] = count;
+      }
+    }
+
+    if (Object.keys(analytics).length === 0) {
+      toast("No analytics data found in file", "info");
+      return;
+    }
+
+    localStorage.setItem("dmp_analytics", JSON.stringify(analytics));
+
+    const dates = Object.keys(analytics).sort();
+    if (dates.length > 0) {
+      STATE.analyticsStartDate = dates[0];
+      STATE.analyticsEndDate = dates[dates.length - 1];
+    }
+
+    toast("Analytics synced from file", "success");
+    refreshAnalyticsDashboard();
+  } catch (e) {
+    console.error(e);
+    toast("Sync failed: " + e.message, "error");
+  }
+}
+
+
+function formatAnalyticsDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function refreshAnalyticsDashboard() {
@@ -5778,6 +5905,7 @@ function refreshAnalyticsDashboard() {
   const analytics = JSON.parse(localStorage.getItem("dmp_analytics") || "{}");
   const dash = document.getElementById("analyticsDashboard");
   const dateEl = document.getElementById("analyticsDate");
+  const titleEl = document.getElementById("analyticsDashboardTitle");
   if (!dash || !dateEl) return;
 
   // Calculate Bounds
@@ -5786,6 +5914,22 @@ function refreshAnalyticsDashboard() {
   const maxDate = dates.length > 0 ? dates[dates.length - 1] : today;
 
   const view = STATE.analyticsView || "today";
+
+  // Update Dynamic Title
+  if (titleEl) {
+    if (view === "total") {
+      titleEl.textContent = "All Time Lead Analytics";
+    } else {
+      const startFmt = formatAnalyticsDate(STATE.analyticsStartDate);
+      const endFmt = formatAnalyticsDate(STATE.analyticsEndDate);
+      if (startFmt === endFmt) {
+        titleEl.textContent = `${startFmt} Lead Analytics`;
+      } else {
+        titleEl.textContent = `${startFmt} to ${endFmt} Lead Analytics`;
+      }
+    }
+  }
+
   dateEl.innerHTML = `
     <div style="display:flex; align-items:center; gap:12px; flex-wrap: wrap;">
       <div class="toggle-group" style="display:inline-flex; background:var(--surface2); padding:2px; border-radius:6px;">
@@ -5797,24 +5941,26 @@ function refreshAnalyticsDashboard() {
         view === "today"
           ? `
         <div style="display:flex; align-items:center; gap:8px;">
-          <div style="position:relative; display:flex; align-items:center; gap:5px;">
-             <span style="font-size:10px; color:var(--text3); font-weight:600;">FROM</span>
+          <div style="display:flex; align-items:center; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:2px 4px; gap:4px;">
              <div style="position:relative; display:flex; align-items:center;">
                <i data-lucide="calendar" style="position:absolute; left:8px; width:10px; height:10px; color:var(--text3); pointer-events:none;"></i>
                <input type="date" value="${STATE.analyticsStartDate}" 
                       min="${minDate}" max="${maxDate}"
                       onchange="setAnalyticsRange(this.value, STATE.analyticsEndDate)"
-                      style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:2px 6px 2px 24px; font-size:10px; color:var(--text1); cursor:pointer;">
+                      style="background:transparent; border:none; padding:2px 4px 2px 24px; font-size:10px; color:var(--text1); cursor:pointer;"
+                      title="From Date">
              </div>
-             <span style="font-size:10px; color:var(--text3); font-weight:600;">TO</span>
+             <div style="width:1px; height:12px; background:var(--border);"></div>
              <div style="position:relative; display:flex; align-items:center;">
-               <i data-lucide="calendar" style="position:absolute; left:8px; width:10px; height:10px; color:var(--text3); pointer-events:none;"></i>
                <input type="date" value="${STATE.analyticsEndDate}" 
                       min="${minDate}" max="${maxDate}"
                       onchange="setAnalyticsRange(STATE.analyticsStartDate, this.value)"
-                      style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:2px 6px 2px 24px; font-size:10px; color:var(--text1); cursor:pointer;">
+                      style="background:transparent; border:none; padding:2px 24px 2px 4px; font-size:10px; color:var(--text1); cursor:pointer;"
+                      title="To Date">
+               <i data-lucide="calendar" style="position:absolute; right:8px; width:10px; height:10px; color:var(--text3); pointer-events:none;"></i>
              </div>
           </div>
+          <button class="btn btn-ghost" onclick="syncAnalyticsFromFile()" style="padding:2px 8px; font-size:9px;" title="Rebuild history from leads_analytics.txt"><i data-lucide="refresh-cw" style="width:10px; height:10px; margin-right:3px;"></i>Sync</button>
           <button class="btn btn-ghost" onclick="resetRangeAnalytics()" style="padding:2px 8px; font-size:9px;" title="Reset incorrect counts for this range"><span style="color:var(--red);">Reset</span></button>
         </div>
       `
