@@ -21,14 +21,16 @@ const MIME_TYPES = {
 let lastHeartbeat = Date.now();
 
 const server = http.createServer((req, res) => {
-  if (req.url === "/heartbeat") {
+  const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+
+  if (requestUrl.pathname === "/heartbeat") {
     lastHeartbeat = Date.now();
     res.writeHead(200);
     res.end("ok");
     return;
   }
 
-  let filePath = "." + req.url;
+  let filePath = "." + decodeURIComponent(requestUrl.pathname);
   if (filePath === "./") {
     filePath = "./index.html";
   }
@@ -42,7 +44,8 @@ const server = http.createServer((req, res) => {
         if (error.code === "ENOENT") {
           // If not found in root, try checking the public folder
           if (!targetPath.startsWith("./public/")) {
-            const publicPath = "./public" + req.url;
+            const publicPath =
+              "./public" + decodeURIComponent(requestUrl.pathname);
             serveFile(publicPath);
           } else {
             res.writeHead(404);
@@ -53,7 +56,13 @@ const server = http.createServer((req, res) => {
           res.end("Server error: " + error.code);
         }
       } else {
-        res.writeHead(200, { "Content-Type": contentType });
+        const headers = { "Content-Type": contentType };
+        if ([".html", ".js", ".css"].includes(extname)) {
+          headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+          headers.Pragma = "no-cache";
+          headers.Expires = "0";
+        }
+        res.writeHead(200, headers);
         res.end(content, "utf-8");
       }
     });

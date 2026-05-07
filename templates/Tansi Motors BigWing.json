@@ -28,7 +28,7 @@
     ],
     [
       "Contact No",
-      "phone",
+      "[phone_number,phone]",
       "d",
       "i",
       "z"
@@ -40,26 +40,31 @@
     [
       "Location",
       "are_you_located_in_whitefield_/_hoodi?",
-      "f",
-      "z"
+      "z",
+      "h"
     ],
     [
-      "Lead Created Date & Time",
+      "Platform",
+      "platform",
+      "f"
+    ],
+    [
+      "Lead Created Date FB/IG/Cam Leads",
       "created_time",
-      "n"
+      "n",
+      "l"
     ]
   ],
   "unique_columns": [
     "Contact No"
   ],
-  "sort_column": "Lead Created Date & Time",
+  "sort_column": "Lead Created Date FB/IG/Cam Leads",
   "sort_order": "asc",
   "google_links": [
-    "https://docs.google.com/spreadsheets/d/155hf3icvBa3jf8f8sdfykIibe0LLO6gCaHCmKfV8aIw/edit?usp=sharing"
+    "https://docs.google.com/spreadsheets/d/1cvHetIILGjaTffKjcI8xHukca0SQkBgxpNN4BbilcgU/edit?usp=sharing"
   ],
   "pages": [
-    "Exchange & Upgrade",
-    "Buy a Honda from Home _ BW",
-    "Rev-up for a New Ride @ Honda B"
+    "BW",
+    "Exchange & Upgrade to an Amazin"
   ]
 }

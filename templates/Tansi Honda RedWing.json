@@ -4,8 +4,8 @@
     [
       "Date",
       "0",
-      "a",
-      "z"
+      "z",
+      "a"
     ],
     [
       "Hirise Mobility",
@@ -39,15 +39,19 @@
     ],
     [
       "Assign",
-      "select_your_nearest_branch_*",
+      "[select_your_nearest_branch_*,preferred_showroom_location?,select_your_nearest_tansi_honda_showroom.,preferred_showroom_location]",
       "k",
+      "u",
+      "x",
+      "j",
       {
         "hoodi": "Sean Bezlel R N",
         "whitefield": "Harish C",
         "seegehalli": "Raghu Ranjith M",
         "gunjur": "Narasimha N",
         "marathahalli": "Ashwath Narayana Chari B N",
-        "panathur": "Vinod Kumar R"
+        "panathur": "Vinod Kumar R",
+        "hrbrlayout": "Vinod Kumar R"
       }
     ],
     [
@@ -59,7 +63,7 @@
     ],
     [
       "Location",
-      "select_your_nearest_branch_*",
+      "[select_your_nearest_branch_*,select_your_nearest_tansi_honda_showroom.,preferred_showroom_location?,preferred_showroom_location]",
       "l",
       "h",
       "u",
@@ -79,14 +83,14 @@
   "sort_column": "Lead Created Time",
   "sort_order": "asc",
   "google_links": [
-    "https://docs.google.com/spreadsheets/d/1WnlBCd9aU5ptp67PAuK_sU3EHUb-VPjqlYkXj1L1_ic/edit?usp=sharing"
+    "https://docs.google.com/spreadsheets/d/1cvHetIILGjaTffKjcI8xHukca0SQkBgxpNN4BbilcgU/edit?usp=sharing"
   ],
   "pages": [
-    "March",
-    "Activa King of Scooters",
-    "CB125 Hornet Get 5+5 Insurance ",
-    "Dio 125 X Edition",
-    "Shine 125 Limited Edition",
-    "Buy a Honda From Home"
+    "CB125 Hornet ",
+    "Back to Campus on a Honda Smart",
+    "Buy a Honda from Home_Skip the ",
+    "Activa 110 & Activa 125_Instant",
+    "Exchange & Upgrade to Honda Act",
+    "Dio 110 & Dio 125_Instant CashB"
   ]
 }

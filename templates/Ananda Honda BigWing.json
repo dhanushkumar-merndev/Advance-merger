@@ -54,6 +54,10 @@
       "z"
     ],
     [
+      "are_you_located_in_bangalore?",
+      "[created_time,are_you_located_in_bangalore?]"
+    ],
+    [
       "Created_time",
       "created_time"
     ]
@@ -67,6 +71,7 @@
     "https://docs.google.com/spreadsheets/d/1GrRHozjIPvQxGSJ-f_p9LMpG_fnOUw6XVaffHtLqJn4/edit?usp=sharing"
   ],
   "pages": [
-    "Hornet 2.0"
+    "CB350C",
+    "Bookings Open"
   ]
 }

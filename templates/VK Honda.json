@@ -1,0 +1,49 @@
+{
+  "name": "VK Honda",
+  "columns": [
+    [
+      "Date",
+      "0",
+      "a"
+    ],
+    [
+      "Campaigns",
+      "ad_name"
+    ],
+    [
+      "Name",
+      "full_name"
+    ],
+    [
+      "Phone Number",
+      "phone_number",
+      "d"
+    ],
+    [
+      "CUSTOMER Remark*",
+      "0",
+      "0"
+    ],
+    [
+      "Location",
+      "select_your_nearest_branch_*"
+    ],
+    [
+      "Lead Created Date",
+      "created_time"
+    ],
+    [
+      "Mail Id",
+      "email"
+    ]
+  ],
+  "unique_columns": [],
+  "sort_column": "Lead Created Date",
+  "sort_order": "asc",
+  "google_links": [
+    "https://docs.google.com/spreadsheets/d/10PoTsb1tJoZ5CSzfUiQalVhYR0Doe1bsCHP641SCLEY/edit?usp=sharing"
+  ],
+  "pages": [
+    "Summer Special Offer _ Activa 1"
+  ]
+}

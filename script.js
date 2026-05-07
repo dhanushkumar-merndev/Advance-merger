@@ -156,6 +156,19 @@ async function loadSheetJS() {
   );
 }
 
+const SOURCE_SHEET_MAX_COL_INDEX = 20; // A:U
+
+function sourceSheetToRows(ws) {
+  if (!ws || !ws["!ref"]) return [];
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  if (range.s.c > SOURCE_SHEET_MAX_COL_INDEX) return [];
+  range.e.c = Math.min(range.e.c, SOURCE_SHEET_MAX_COL_INDEX);
+  return XLSX.utils.sheet_to_json(ws, {
+    header: 1,
+    range: XLSX.utils.encode_range(range),
+  });
+}
+
 function parseFileHeaders(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -178,7 +191,7 @@ function parseFileHeaders(file) {
         const headers = [];
         for (const name of wb.SheetNames) {
           const ws = wb.Sheets[name];
-          const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+          const json = sourceSheetToRows(ws);
           const row = json && json[0] ? json[0] : [];
           for (const h of row) {
             const norm = String(h || "")
@@ -775,6 +788,16 @@ async function writeToLinkedFolder(subfolder, filename, jsonObj) {
   }
 }
 
+function filenameFromName(name, keepSpaces = false) {
+  const cleaned = keepSpaces
+    ? name
+        .replace(/[^\w\-\s]/g, "_")
+        .replace(/\s+/g, " ")
+        .trim()
+    : name.replace(/[^\w\-]/g, "_");
+  return `${cleaned || "copy"}.json`;
+}
+
 async function linkFolder() {
   if (!window.showDirectoryPicker) {
     toast("Use Chrome or Edge for folder linking", "error");
@@ -910,6 +933,7 @@ function renderTemplateList(query = "") {
       <div class="lc-actions">
 
         <button class="btn-icon" onclick="downloadTemplateJson(STATE.templates[${i}])" title="Download JSON"><i data-lucide="download" class="icon"></i></button>
+        <button class="btn-icon" onclick="copyTemplate(${i})" title="Copy"><i data-lucide="copy" class="icon"></i></button>
         <button class="btn-icon" onclick="editTemplate(${i})" title="Edit"><i data-lucide="edit-3" class="icon"></i></button>
         <button class="btn-icon danger" onclick="deleteTemplate(${i})" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
       </div>
@@ -917,6 +941,43 @@ function renderTemplateList(query = "") {
     })
     .join("");
   refreshIcons();
+}
+
+async function copyTemplate(i) {
+  const tpl = STATE.templates[i];
+  if (!tpl) return;
+  const name = window.prompt("New template name:", `${tpl.name} Copy`);
+  if (!name || !name.trim()) return;
+  const newName = name.trim();
+  const exists = STATE.templates.some(
+    (t) => t.name.toLowerCase() === newName.toLowerCase(),
+  );
+  if (exists) {
+    toast("A template with this name already exists", "error");
+    return;
+  }
+
+  const copy = JSON.parse(JSON.stringify(tpl));
+  copy.name = newName;
+  STATE.templates.push(copy);
+  save();
+  renderTemplateList();
+  refreshHome();
+
+  const filename = filenameFromName(newName, true);
+  if (STATE.folderHandle) {
+    const ok = await writeToLinkedFolder(
+      "templates",
+      filename,
+      templateToJsonFile(copy),
+    );
+    toast(
+      ok ? `Copied to templates/${filename}` : "Template copied in app only",
+      ok ? "success" : "warning",
+    );
+  } else {
+    toast("Template copied", "success");
+  }
 }
 
 function openCreateTemplate() {
@@ -1290,11 +1351,47 @@ function renderGroupList(query = "") {
       return `
     <div class="list-card">
       <div class="lc-left"><div class="lc-icon blue"><i data-lucide="package"></i></div><div><div class="lc-title">${esc(g.name)}</div><div style="display:flex;align-items:center;gap:8px;margin-top:4px"><div class="lc-sub">${g.sources.length} source(s)</div><div class="xlsx-stat-pill" style="font-size:10px">${esc(g.templateName || "No Template")}</div></div></div></div>
-      <div class="lc-actions"><button class="btn-icon" onclick="editGroup(${i})"><i data-lucide="edit-3" class="icon"></i></button><button class="btn-icon danger" onclick="deleteGroup(${i})"><i data-lucide="trash-2" class="icon"></i></button></div>
+      <div class="lc-actions"><button class="btn-icon" onclick="copyGroup(${i})" title="Copy"><i data-lucide="copy" class="icon"></i></button><button class="btn-icon" onclick="editGroup(${i})" title="Edit"><i data-lucide="edit-3" class="icon"></i></button><button class="btn-icon danger" onclick="deleteGroup(${i})" title="Delete"><i data-lucide="trash-2" class="icon"></i></button></div>
     </div>`;
     })
     .join("");
   refreshIcons();
+}
+
+async function copyGroup(i) {
+  const group = STATE.groups[i];
+  if (!group) return;
+  const name = window.prompt("New source group name:", `${group.name} Copy`);
+  if (!name || !name.trim()) return;
+  const newName = name.trim();
+  const exists = STATE.groups.some(
+    (g) => g.name.toLowerCase() === newName.toLowerCase(),
+  );
+  if (exists) {
+    toast("A source group with this name already exists", "error");
+    return;
+  }
+
+  const copy = JSON.parse(JSON.stringify(group));
+  copy.name = newName;
+  copy.created = new Date().toISOString();
+  STATE.groups.push(copy);
+  save();
+  renderGroupList();
+  refreshHome();
+
+  const filename = filenameFromName(newName);
+  if (STATE.folderHandle) {
+    const ok = await writeToLinkedFolder("source_groups", filename, copy);
+    toast(
+      ok
+        ? `Copied to source_groups/${filename}`
+        : "Source group copied in app only",
+      ok ? "success" : "warning",
+    );
+  } else {
+    toast("Source group copied", "success");
+  }
 }
 
 async function openCreateGroup() {
@@ -1473,13 +1570,48 @@ function renderCampaignList(query = "") {
         </div>
       </div>
       <div class="lc-actions">
-        <button class="btn-icon" onclick="editCampaign(${i})"><i data-lucide="edit-3" class="icon"></i></button>
-        <button class="btn-icon danger" onclick="deleteCampaign(${i})"><i data-lucide="trash-2" class="icon"></i></button>
+        <button class="btn-icon" onclick="copyCampaign(${i})" title="Copy"><i data-lucide="copy" class="icon"></i></button>
+        <button class="btn-icon" onclick="editCampaign(${i})" title="Edit"><i data-lucide="edit-3" class="icon"></i></button>
+        <button class="btn-icon danger" onclick="deleteCampaign(${i})" title="Delete"><i data-lucide="trash-2" class="icon"></i></button>
       </div>
     </div>`;
     })
     .join("");
   refreshIcons();
+}
+
+async function copyCampaign(i) {
+  const campaign = STATE.campaigns[i];
+  if (!campaign) return;
+  const name = window.prompt("New campaign name:", `${campaign.name} Copy`);
+  if (!name || !name.trim()) return;
+  const newName = name.trim();
+  const exists = STATE.campaigns.some(
+    (c) => c.name.toLowerCase() === newName.toLowerCase(),
+  );
+  if (exists) {
+    toast("A campaign with this name already exists", "error");
+    return;
+  }
+
+  const copy = JSON.parse(JSON.stringify(campaign));
+  copy.name = newName;
+  copy.created = new Date().toISOString();
+  STATE.campaigns.push(copy);
+  save();
+  renderCampaignList();
+  refreshHome();
+
+  const filename = filenameFromName(newName);
+  if (STATE.folderHandle) {
+    const ok = await writeToLinkedFolder("campaigns", filename, copy);
+    toast(
+      ok ? `Copied to campaigns/${filename}` : "Campaign copied in app only",
+      ok ? "success" : "warning",
+    );
+  } else {
+    toast("Campaign copied", "success");
+  }
 }
 
 function openCreateCampaign() {
@@ -1888,7 +2020,7 @@ async function tryReadFileFromFolder(srcPath, template) {
     // Iterate all sheets and map rows according to template, append results
     for (const name of wb.SheetNames) {
       const ws = wb.Sheets[name];
-      const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const json = sourceSheetToRows(ws);
       if (!json || json.length < 2) continue; // no data
       const srcHeaders = (json[0] || []).map((h) =>
         String(h).toLowerCase().trim(),
@@ -2667,7 +2799,7 @@ async function fetchGoogleSheetCols() {
     const filesSeen = [];
     for (const name of wb.SheetNames) {
       const ws = wb.Sheets[name];
-      const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const json = sourceSheetToRows(ws);
       const row = json && json[0] ? json[0] : [];
       let sheetColCount = 0;
       const pageCols = [];
@@ -2721,13 +2853,21 @@ function renderTemplateLinkList() {
       } catch (e) {}
       return `
       <div style="display:flex;align-items:center;justify-content:space-between;background:white;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px">
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;color:var(--text2)" title="${esc(url)}">${esc(short)}</span>
+        <button type="button" onclick="applyTemplateLink(${idx})" style="border:0;background:transparent;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;color:var(--text2);cursor:pointer;text-align:left" title="Fetch ${escAttr(url)}">${esc(short)}</button>
         <button class="btn-icon danger" style="padding:2px;width:18px;height:18px" onclick="removeTemplateLink(${idx})">✕</button>
       </div>
     `;
     })
     .join("");
   refreshIcons();
+}
+
+function applyTemplateLink(idx) {
+  const url = STATE.currentTemplateLinks[idx];
+  const input = document.getElementById("gsheetUrlInput");
+  if (!url || !input) return;
+  input.value = url;
+  fetchGoogleSheetCols();
 }
 
 function removeTemplateLink(idx) {
@@ -3996,7 +4136,7 @@ function generateCommand() {
       inputs.push({
         prompt: "Quick or Advanced (1/2):",
         value: "1",
-        note: "Quick = auto dedup + auto filename",
+        note: "Quick = keep all rows + auto filename",
       });
     } else {
       inputs.push({ prompt: "Quick or Advanced (1/2):", value: "2" });
@@ -4979,7 +5119,7 @@ async function readLocalData(path, template, pagesToInclude = "") {
         continue;
       }
       const ws = wb.Sheets[name];
-      const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const json = sourceSheetToRows(ws);
       if (!json || json.length < 2) {
         continue;
       }
@@ -5006,7 +5146,60 @@ function mapSourceToJson(rawJson, template) {
     : [];
   const rows = rawJson.slice(1);
 
-  // Skip truly empty rows to ensure accurate count
+  const getColumnParts = (col) => {
+    if (Array.isArray(col)) {
+      const name = col[0] || "";
+      const tokens = col.slice(1).filter((t) => typeof t === "string");
+      const dict =
+        col.find((t) => typeof t === "object" && t !== null) || null;
+      let src = "0";
+      let fmtTokens = tokens;
+      if (tokens.length > 0) {
+        const first = tokens[0];
+        if (first === "0") {
+          fmtTokens = tokens.slice(1);
+        } else if (!FORMAT_CODES.some((f) => f.code === first)) {
+          src = first;
+          fmtTokens = tokens.slice(1);
+        }
+      }
+      return { name, src, fmt: fmtTokens.join(" "), dict };
+    }
+    return {
+      name: col.name || "",
+      src: col.src || "0",
+      fmt: col.fmt || "",
+      dict: col.dict || null,
+    };
+  };
+  const templateColumns = template.columns.map(getColumnParts);
+
+  const sourceIndexes = new Set();
+  const missingSourceColumns = [];
+  templateColumns.forEach((col) => {
+    if (col.src === "0" || !col.src) return;
+    const srcNames = col.src
+      .replace(/^\[|\]$/g, "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    let foundAnySource = false;
+    srcNames.forEach((s) => {
+      const idx = headers.indexOf(s);
+      if (idx !== -1) {
+        sourceIndexes.add(idx);
+        foundAnySource = true;
+      }
+    });
+
+    if (!foundAnySource) {
+      missingSourceColumns.push(`${col.name}: ${srcNames.join(" or ")}`);
+    }
+  });
+
+  // Skip truly empty rows only. Rows with data that does not match the template
+  // are exported with a Data Issue note so the source/template can be fixed.
   const dataRows = rows.filter(
     (r) =>
       r &&
@@ -5016,7 +5209,50 @@ function mapSourceToJson(rawJson, template) {
 
   return dataRows.map((row) => {
     const mapped = {};
-    template.columns.forEach((col) => {
+    const rowIssues = [];
+    const hasMappedSourceData =
+      sourceIndexes.size > 0 &&
+      Array.from(sourceIndexes).some(
+        (idx) =>
+          row[idx] !== null &&
+          row[idx] !== undefined &&
+          String(row[idx]).trim() !== "",
+      );
+
+    if (!sourceIndexes.size) {
+      rowIssues.push("Template source columns not found in source sheet");
+    } else if (!hasMappedSourceData) {
+      const unmappedValues = row
+        .map((cell, idx) => ({
+          cell,
+          header: headers[idx] || `Column ${idx + 1}`,
+        }))
+        .filter(
+          ({ cell }, idx) =>
+            !sourceIndexes.has(idx) &&
+            cell !== null &&
+            cell !== undefined &&
+            String(cell).trim() !== "",
+        )
+        .slice(0, 5)
+        .map(({ header }) => header);
+
+      rowIssues.push(
+        unmappedValues.length
+          ? `No data in mapped template columns; source has data only in unmapped columns: ${unmappedValues.join(", ")}`
+          : "No data in mapped template columns",
+      );
+    }
+
+    if (missingSourceColumns.length) {
+      rowIssues.push(
+        `Template source headers not found: ${missingSourceColumns
+          .slice(0, 8)
+          .join(", ")}`,
+      );
+    }
+
+    templateColumns.forEach((col) => {
       let val = "";
       if (col.src === "0" || !col.src) {
         val = "";
@@ -5041,6 +5277,7 @@ function mapSourceToJson(rawJson, template) {
 
       mapped[col.name] = val;
     });
+    if (rowIssues.length) mapped.__dmp_warning = rowIssues.join(" | ");
     return mapped;
   });
 }
@@ -5235,12 +5472,14 @@ async function runDirectMerge() {
         "runIncrementalCheck1",
       ).checked;
 
-      let dedupCols = template.dedupCols || [];
+      let dedupCols = [];
       if (isAdvanced) {
         const dedupType = document.querySelector(
           '[name="runDedup1"]:checked',
         ).value;
-        if (dedupType === "custom") {
+        if (dedupType === "saved") {
+          dedupCols = template.dedupCols || [];
+        } else if (dedupType === "custom") {
           dedupCols = [
             ...document.querySelectorAll(".run-custom-dedup-check:checked"),
           ].map((i) => i.value);
@@ -5330,18 +5569,22 @@ async function runDirectMerge() {
       // Clean up internal metadata before Excel export
       const exportRows = rows.map((r) => {
         const clean = { ...r };
+        if (clean.__dmp_warning) clean["Data Issue"] = clean.__dmp_warning;
         delete clean.__dmp_src;
         delete clean.__dmp_idx;
         delete clean.__dmp_page;
+        delete clean.__dmp_warning;
         delete clean["[SYSTEM] SOURCE SHEET"];
         delete clean["[SYSTEM] PAGE"];
         return clean;
       });
 
       const ws = XLSX.utils.json_to_sheet(exportRows);
+      const hasDataIssues = exportRows.some((r) => r["Data Issue"]);
       const colWidths = template.columns.map((c) => ({
         wch: Math.max(c.name.length + 4, 15),
       }));
+      if (hasDataIssues) colWidths.push({ wch: 72 });
       ws["!cols"] = colWidths;
       applyCellStyles(ws, template);
 
@@ -5496,7 +5739,7 @@ async function fetchExternalData(url, template, pagesToInclude = "") {
         continue;
       }
       const ws = wb.Sheets[sheetName];
-      const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const json = sourceSheetToRows(ws);
 
       if (!json || json.length < 2) continue;
       const mapped = mapSourceToJson(json, template);
