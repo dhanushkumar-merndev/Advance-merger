@@ -156,6 +156,79 @@ async function loadSheetJS() {
   );
 }
 
+// ─── JSZIP LOADER ─────────────────────────────────────────────────────────
+async function loadJSZip() {
+  if (typeof JSZip !== "undefined") return;
+
+  const sources = [
+    "./node_modules/jszip/dist/jszip.min.js",
+    "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+  ];
+
+  for (const src of sources) {
+    try {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.onload = () => {
+          if (typeof JSZip !== "undefined") {
+            resolve();
+          } else {
+            reject(new Error("JSZip global not available from: " + src));
+          }
+        };
+        script.onerror = () => reject(new Error("Failed to load: " + src));
+        document.head.appendChild(script);
+      });
+      return;
+    } catch (e) {
+      console.warn("[JSZip]", e.message);
+    }
+  }
+
+  throw new Error("Could not load JSZip library from any source.");
+}
+
+async function extractFilesFromZip(zipFile) {
+  await loadJSZip();
+  const data = await zipFile.arrayBuffer();
+  const zip = await JSZip.loadAsync(data);
+  const extracted = [];
+  const SUPPORTED = [".csv", ".xlsx", ".xls", ".tsv", ".txt", ".ods"];
+
+  for (const [relPath, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue;
+    const ext = relPath.slice(relPath.lastIndexOf(".")).toLowerCase();
+    if (!SUPPORTED.includes(ext)) continue;
+    const blob = await entry.async("blob");
+    const fileName = relPath.split("/").pop();
+    extracted.push({ file: new File([blob], fileName), path: relPath });
+  }
+  return extracted;
+}
+
+async function getFilesFromDirectory(dirHandle) {
+  const files = [];
+  const SUPPORTED = [".csv", ".xlsx", ".xls", ".tsv", ".txt", ".ods"];
+
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (handle.kind === "file") {
+      const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+      if (SUPPORTED.includes(ext)) {
+        const file = await handle.getFile();
+        files.push({ file, path: name });
+      }
+    } else if (handle.kind === "directory") {
+      const sub = await getFilesFromDirectory(handle);
+      for (const f of sub) {
+        files.push({ file: f.file, path: name + "/" + f.path });
+      }
+    }
+  }
+  return files;
+}
+
 const SOURCE_SHEET_MAX_COL_INDEX = 20; // A:U
 
 function sourceSheetToRows(ws) {
@@ -2293,6 +2366,26 @@ async function handleInputFolderDrop(event, folder) {
 
     for (const file of files) {
       const ext = getExt(file.name);
+
+      // Handle zip files — extract and save CSV/Excel contents
+      if (ext === ".zip") {
+        try {
+          const extracted = await extractFilesFromZip(file);
+          for (const entry of extracted) {
+            const fileHandle = await targetDir.getFileHandle(entry.file.name, {
+              create: true,
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(entry.file);
+            await writable.close();
+            uploaded++;
+          }
+        } catch (e) {
+          skipped.push(`${file.name} (extract failed: ${e.message})`);
+        }
+        continue;
+      }
+
       if (!ext) {
         skipped.push(`${file.name} (no extension)`);
         continue;
@@ -2705,14 +2798,64 @@ async function moveInputFilesToTemplateFolder(templateName) {
 }
 
 async function readSampleFile(input) {
-  const files = [...input.files];
-  if (!files.length) return;
   const statusEl = document.getElementById("scanStatus");
+
+  // Check if folder input (webkitdirectory)
+  let files = [];
+  const allEntries = [];
+  let zipFiles = [];
+
+  if (input.files) {
+    const fileList = [...input.files];
+
+    // Separate zip files and non-zip, detect folder entries
+    const zipFilesList = [];
+    const regularFiles = [];
+
+    for (const f of fileList) {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
+      if (ext === ".zip") {
+        zipFilesList.push(f);
+      } else if (
+        [".csv", ".xlsx", ".xls", ".tsv", ".txt", ".ods"].includes(ext)
+      ) {
+        regularFiles.push(f);
+      }
+    }
+
+    zipFiles = zipFilesList;
+
+    // Extract zip files
+    for (const zf of zipFiles) {
+      statusEl.textContent = `Extracting ${zf.name}...`;
+      try {
+        const extracted = await extractFilesFromZip(zf);
+        for (const entry of extracted) {
+          regularFiles.push(entry.file);
+          allEntries.push({ file: entry.file, source: zf.name + "/" + entry.path });
+        }
+      } catch (e) {
+        toast(`Could not extract ${zf.name}: ${e.message}`, "error");
+      }
+    }
+
+    for (const f of regularFiles) {
+      if (!allEntries.find((e) => e.file === f)) {
+        allEntries.push({ file: f, source: f.name });
+      }
+    }
+    files = regularFiles;
+  }
+
+  if (!files.length) return;
+
   statusEl.textContent = `Reading ${files.length} file(s)...`;
+
   try {
     await loadSheetJS();
     const allCols = new Set();
     const filesSeen = [];
+
     for (const file of files) {
       try {
         const { headers, fileName } = await parseFileHeaders(file);
@@ -2747,14 +2890,83 @@ async function readSampleFile(input) {
         toast(`Could not read ${file.name}: ${e.message}`, "error");
       }
     }
+
     if (allCols.size > 0) {
       showDiscoveredCols([...allCols], filesSeen);
-      statusEl.textContent = `✅ ${allCols.size} column(s) from ${filesSeen.length} file(s)`;
-    } else statusEl.textContent = "No headers found";
+      const total = filesSeen.length;
+      const extras = [];
+      if (zipFiles && zipFiles.length > 0) extras.push(`${zipFiles.length} zip`);
+      statusEl.textContent = `✅ ${allCols.size} column(s) from ${total} file(s)${extras.length ? " (" + extras.join(", ") + ")" : ""}`;
+    } else {
+      statusEl.textContent = "No headers found — upload CSV/Excel files";
+    }
   } catch (e) {
     statusEl.textContent = "Read failed";
   }
   input.value = "";
+}
+
+async function uploadFolderSample() {
+  if (!("showDirectoryPicker" in window)) {
+    toast("Folder upload requires a modern browser (Chrome/Edge)", "error");
+    return;
+  }
+  try {
+    const dirHandle = await window.showDirectoryPicker();
+    const statusEl = document.getElementById("scanStatus");
+    statusEl.textContent = "Scanning folder...";
+
+    const extracted = await getFilesFromDirectory(dirHandle);
+    if (!extracted.length) {
+      toast("No CSV/Excel files found in selected folder", "error");
+      return;
+    }
+
+    await loadSheetJS();
+    const allCols = new Set();
+    const filesSeen = [];
+
+    for (const { file, path } of extracted) {
+      statusEl.textContent = `Reading ${path}...`;
+      try {
+        const { headers, fileName } = await parseFileHeaders(file);
+        headers.forEach((h) => allCols.add(h));
+        filesSeen.push({
+          name: path,
+          count: headers.length,
+          columns: headers,
+        });
+
+        if (STATE.folderHandle) {
+          try {
+            const inputDir = await STATE.folderHandle.getDirectoryHandle("input", { create: true });
+            const fh = await inputDir.getFileHandle(fileName, { create: true });
+            const writable = await fh.createWritable();
+            await writable.write(file);
+            await writable.close();
+            if (!STATE._scannedInputFileNames.includes(fileName)) {
+              STATE._scannedInputFileNames.push(fileName);
+            }
+          } catch (err) {
+            console.warn("Auto-upload failed:", err);
+          }
+        }
+      } catch (e) {
+        toast(`Could not read ${file.name}: ${e.message}`, "error");
+      }
+    }
+
+    if (allCols.size > 0) {
+      showDiscoveredCols([...allCols], filesSeen);
+      statusEl.textContent = `✅ ${allCols.size} column(s) from ${filesSeen.length} file(s) (folder)`;
+    } else {
+      statusEl.textContent = "No headers found in folder";
+    }
+  } catch (e) {
+    if (e.name !== "AbortError" && e.name !== "SecurityError") {
+      toast("Folder selection failed: " + e.message, "error");
+    }
+  }
 }
 
 async function fetchGoogleSheetCols() {

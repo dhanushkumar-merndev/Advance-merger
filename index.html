@@ -1211,8 +1211,9 @@
             <div
               style="font-size: 11px; color: var(--text3); margin-bottom: 8px"
             >
-              CSV, XLSX, XLS, TSV
+              CSV, XLSX, XLS, TSV, ZIP
             </div>
+            <div style="display: flex; gap: 6px; flex-direction: column">
             <label
               class="btn btn-ghost btn-sm"
               style="
@@ -1227,14 +1228,31 @@
                 class="icon"
                 style="margin-right: 4px"
               ></i>
-              Upload<input
+              Upload Files<input
                 type="file"
-                accept=".xlsx,.csv,.xls,.tsv,.txt"
+                accept=".xlsx,.csv,.xls,.tsv,.txt,.ods,.zip"
                 id="sampleFileInput"
                 style="display: none"
                 multiple
                 onchange="readSampleFile(this)"
             /></label>
+            <button
+              class="btn btn-ghost btn-sm"
+              style="
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+              "
+              onclick="uploadFolderSample()"
+              ><i
+                data-lucide="folder-open"
+                class="icon"
+                style="margin-right: 4px"
+              ></i>
+              Upload Folder</button>
+            </div>
           </div>
           <div
             style="
